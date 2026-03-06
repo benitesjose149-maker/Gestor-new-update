@@ -1,0 +1,19 @@
+# Node modules
+node_modules/
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist/
+build/
+.angular/
+
+# Environment variables
+.env
+secret.json
