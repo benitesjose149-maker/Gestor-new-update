@@ -1,0 +1,154 @@
+<div class="movements-container">
+    <header class="page-header">
+        <h1>Gestión de Movimientos</h1>
+        <button class="btn-add" (click)="openModal()">
+            <span>+</span> Nuevo Movimiento
+        </button>
+    </header>
+
+    <!-- Filters -->
+    <div class="filters-bar"
+        style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 20px;">
+        <input type="month" class="form-control" style="width: 180px;" [(ngModel)]="selectedMonth">
+
+        <input type="text" class="search-input" placeholder="Buscar por empleado..." [(ngModel)]="searchTerm"
+            style="flex: 1; min-width: 200px;">
+
+        <select class="form-control" style="width: 200px;" [(ngModel)]="filterType">
+            <option value="">Todos los Tipos</option>
+            <option value="ADELANTO">Adelantos</option>
+            <option value="PRESTAMO">Préstamos</option>
+            <option value="VIATICOS">Viáticos</option>
+            <option value="MOVILIDAD">Movilidad</option>
+        </select>
+
+        <button class="btn-primary"
+            style="padding: 8px 16px; border-radius: 6px; border: none; background-color: #2563eb; color: white; cursor: pointer; font-weight: 500;"
+            (click)="loadData()">
+            Buscar
+        </button>
+        <button class="btn-secondary"
+            style="padding: 8px 16px; border-radius: 6px; border: 1px solid #d1d5db; background-color: #ffffff; color: #374151; cursor: pointer; font-weight: 500;"
+            (click)="clearFilters()">
+            Limpiar Filtros
+        </button>
+    </div>
+
+    <!-- Table -->
+    <div class="table-container">
+        <table class="movements-table">
+            <thead>
+                <tr>
+                    <th>Fecha</th>
+                    <th>Empleado</th>
+                    <th>Tipo</th>
+                    <th>Detalle / Cuotas</th>
+                    <th style="text-align: right;">Monto</th>
+                    <th>Observación</th>
+                    <th style="text-align: center;">Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr *ngFor="let move of filteredMovements">
+                    <td>{{move.fecha | date:'dd/MM/yyyy'}}</td>
+                    <td>
+                        <div style="font-weight: 500;">{{move.empleadoNombre}}</div>
+                        <div style="font-size: 0.75rem; color: #6b7280;">{{move.empleadoCargo}}</div>
+                    </td>
+                    <td>
+                        <span class="badge" [ngClass]="move.tipo.toLowerCase()">{{move.tipo}}</span>
+                    </td>
+                    <td>
+                        <span *ngIf="move.tipo === 'PRESTAMO' && move.cuotas">
+                            Cuota {{move.cuotas}}
+                        </span>
+                        <span *ngIf="move.tipo !== 'PRESTAMO' || !move.cuotas" style="color: #9ca3af;">
+                            -
+                        </span>
+                    </td>
+                    <td style="text-align: right; font-family: monospace; font-size: 1rem;">
+                        S/ {{move.monto | number:'1.2-2'}}
+                    </td>
+                    <td>
+                        <span style="color: #6b7280; font-style: italic;">{{move.observacion || '-'}}</span>
+                    </td>
+                    <td style="text-align: center;">
+                        <button class="btn-icon btn-delete" (click)="deleteMovement(move)" title="Eliminar">
+                            🗑️
+                        </button>
+                    </td>
+                </tr>
+                <tr *ngIf="filteredMovements.length === 0">
+                    <td colspan="7" class="empty-state">
+                        No se encontraron movimientos registrados o que coincidan con la búsqueda.
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Add Modal -->
+<div class="modal-overlay" *ngIf="showModal" (click)="closeModal()">
+    <div class="modal-content" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+            <h2>Registrar Movimiento</h2>
+            <button class="close-btn" (click)="closeModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+
+            <div class="form-group">
+                <label>Empleado</label>
+                <select class="form-control" [(ngModel)]="newMovement.empleadoId">
+                    <option value="" disabled>Seleccione un empleado...</option>
+                    <option *ngFor="let emp of employees" [value]="emp._id">
+                        {{emp.nombre}} {{emp.apellidos}}
+                    </option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Tipo de Movimiento</label>
+                <select class="form-control" [(ngModel)]="newMovement.tipo">
+                    <option value="ADELANTO">Adelanto de Sueldo</option>
+                    <option value="PRESTAMO">Préstamo Personal</option>
+                    <option value="VIATICOS">Viáticos</option>
+                    <option value="MOVILIDAD">Movilidad</option>
+                    <option value="OTROS">Otros</option>
+                </select>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div class="form-group">
+                    <label>Monto (S/)</label>
+                    <input type="number" class="form-control" [(ngModel)]="newMovement.monto" placeholder="0.00">
+                </div>
+                <div class="form-group">
+                    <label>Fecha</label>
+                    <input type="date" class="form-control" [(ngModel)]="newMovement.fecha">
+                </div>
+            </div>
+
+            <div class="form-group" *ngIf="newMovement.tipo === 'PRESTAMO'">
+                <label>Número de Cuotas</label>
+                <input type="number" class="form-control" [(ngModel)]="newMovement.cuotas" min="1" placeholder="Ej. 6">
+                <div style="font-size: 0.75rem; color: #6b7280; margin-top: 0.25rem;">
+                    * Si es 1, se descontará todo en el próximo pago.
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Observación (Opcional)</label>
+                <textarea class="form-control" rows="3" [(ngModel)]="newMovement.observacion"
+                    placeholder="Detalles adicionales..."></textarea>
+            </div>
+
+        </div>
+        <div class="modal-footer">
+            <button class="btn-cancel" (click)="closeModal()">Cancelar</button>
+            <button class="btn-save" (click)="saveMovement()" [disabled]="!isValidForm()">
+                Guardar Movimiento
+            </button>
+        </div>
+    </div>
+</div>

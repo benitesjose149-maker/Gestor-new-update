@@ -1,0 +1,155 @@
+<div class="finance-container">
+    <header class="finance-header">
+        <div class="header-left">
+            <h1>IMM Finance</h1>
+            <span class="header-period">{{ getCurrentMonth() }}</span>
+        </div>
+    </header>
+
+    <div class="stats-grid-6">
+        <div class="stat-card interbank">
+            <div class="stat-indicator">IB</div>
+            <div class="stat-info">
+                <span class="stat-label">INTERBANK</span>
+                <span class="stat-value">S/ {{ totalInterbank | number:'1.2-2' }}</span>
+            </div>
+        </div>
+        <div class="stat-card bcp">
+            <div class="stat-indicator">BC</div>
+            <div class="stat-info">
+                <span class="stat-label">BCP</span>
+                <span class="stat-value">S/ {{ totalBcp | number:'1.2-2' }}</span>
+            </div>
+        </div>
+        <div class="stat-card caja">
+            <div class="stat-indicator">CV</div>
+            <div class="stat-info">
+                <span class="stat-label">CAJA VIRTUAL</span>
+                <span class="stat-value">S/ {{ totalCajaVirtual | number:'1.2-2' }}</span>
+            </div>
+        </div>
+        <div class="stat-card total-general">
+            <div class="stat-indicator">$</div>
+            <div class="stat-info">
+                <span class="stat-label">TOTAL GENERAL</span>
+                <span class="stat-value">S/ {{ thisMonthTotal | number:'1.2-2' }}</span>
+                <span class="stat-change">WHMCS · {{ getCurrentMonth() }}</span>
+            </div>
+        </div>
+        <div class="stat-card balance1">
+            <div class="stat-indicator">B1</div>
+            <div class="stat-info">
+                <span class="stat-label">BALANCE 1</span>
+                <span class="stat-value">S/ {{ balance1 | number:'1.2-2' }}</span>
+            </div>
+        </div>
+        <div class="stat-card balance2">
+            <div class="stat-indicator">B2</div>
+            <div class="stat-info">
+                <span class="stat-label">BALANCE 2</span>
+                <span class="stat-value">S/ {{ balance2 | number:'1.2-2' }}</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="loading-state" *ngIf="loading">
+        <span>Cargando facturas de WHMCS...</span>
+    </div>
+
+    <div *ngIf="!loading" class="card">
+        <div class="card-header">
+            <h2>Facturas WHMCS — {{ getCurrentMonth() }}</h2>
+            <span class="record-count">{{ invoices.length }} registros</span>
+        </div>
+        <div class="table-wrapper">
+            <table class="finance-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Fecha</th>
+                        <th>Cliente / Concepto</th>
+                        <th>Nº Factura</th>
+                        <th>Tipo Mov.</th>
+                        <th>Monto Bruto</th>
+                        <th>Comisión</th>
+                        <th>Depósito/Salida</th>
+                        <th>Banco</th>
+                        <th>Cta. Débito</th>
+                        <th>Cta. Crédito</th>
+                        <th>C. Contable</th>
+                        <th>Estado</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr *ngFor="let inv of invoices; let i = index" class="table-row">
+                        <td class="id-cell">{{ inv.id }}</td>
+                        <td class="date-cell">{{ inv.fecha }}</td>
+                        <td class="desc-cell">{{ inv.clienteConcepto }}</td>
+                        <td class="ref-cell">{{ inv.numFactura }}</td>
+                        <td>
+                            <select class="cell-select" [(ngModel)]="inv.tipoMovimiento" (change)="onFieldChange(inv)">
+                                <option value="">--</option>
+                                <option *ngFor="let mt of movementTypes" [value]="mt.name">{{ mt.name }}</option>
+                            </select>
+                        </td>
+                        <td class="amount-cell amount-positive">S/ {{ inv.montoBruto | number:'1.2-2' }}</td>
+                        <td>
+                            <input type="number" class="cell-input" [(ngModel)]="inv.comision"
+                                (ngModelChange)="onComisionChange(inv)" step="0.01" min="0">
+                        </td>
+                        <td class="amount-cell">
+                            S/ {{ inv.depositoSalida | number:'1.2-2' }}
+                        </td>
+                        <td>
+                            <select class="cell-select" [(ngModel)]="inv.banco" (change)="onFieldChange(inv)">
+                                <option value="">--</option>
+                                <option *ngFor="let b of bancos" [value]="b.name">{{ b.name }}</option>
+                            </select>
+                        </td>
+                        <td>
+                            <select class="cell-select" [(ngModel)]="inv.cuentaDebito" (change)="onFieldChange(inv)">
+                                <option value="">--</option>
+                                <option *ngFor="let da of debitAccounts" [value]="da.name">{{ da.name }}</option>
+                            </select>
+                        </td>
+                        <td>
+                            <select class="cell-select" [(ngModel)]="inv.cuentaCredito" (change)="onFieldChange(inv)">
+                                <option value="">--</option>
+                                <option *ngFor="let ca of creditAccounts" [value]="ca.name">{{ ca.name }}</option>
+                            </select>
+                        </td>
+                        <td>
+                            <select class="cell-select" [(ngModel)]="inv.codigoContable" (change)="onFieldChange(inv)">
+                                <option value="">--</option>
+                                <option *ngFor="let cc of codigosContables" [value]="cc.name">{{ cc.name }}</option>
+                            </select>
+                        </td>
+                        <td>
+                            <select class="cell-select" [(ngModel)]="inv.estadoLocal" (change)="onFieldChange(inv)">
+                                <option value="">--</option>
+                                <option *ngFor="let ts of transactionStatuses" [value]="ts.name">{{ ts.name }}</option>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr *ngIf="invoices.length === 0">
+                        <td colspan="13" class="empty-state">
+                            No se encontraron facturas para este mes.
+                        </td>
+                    </tr>
+                </tbody>
+                <tfoot>
+                    <tr class="totals-row">
+                        <td colspan="5" style="text-align: right; font-weight: 700;">TOTALES</td>
+                        <td class="amount-cell" style="font-weight: 700; color: #16a34a;">S/ {{ totalBruto |
+                            number:'1.2-2' }}</td>
+                        <td class="amount-cell" style="font-weight: 700; color: #dc2626;">S/ {{ totalComisiones |
+                            number:'1.2-2' }}</td>
+                        <td class="amount-cell" style="font-weight: 700; color: #2563eb;">S/ {{ totalDeposito |
+                            number:'1.2-2' }}</td>
+                        <td colspan="5"></td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    </div>
+</div>

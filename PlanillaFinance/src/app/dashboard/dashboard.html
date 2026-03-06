@@ -1,0 +1,45 @@
+<div class="stats-grid">
+    <div class="stat-card" *ngFor="let stat of stats" [ngClass]="stat.color">
+        <div class="stat-icon">{{ stat.icon }}</div>
+        <div class="stat-info">
+            <h3>{{ stat.title }}</h3>
+            <p class="value">{{ stat.value }}</p>
+            <span class="change">{{ stat.change }}</span>
+        </div>
+    </div>
+</div>
+
+<div class="dashboard-widgets">
+    <div class="widget">
+        <div class="widget-header">
+            <h2>🎂 Cumpleaños del Mes</h2>
+        </div>
+        <ul class="activity-list">
+            <li *ngIf="birthdays.length === 0" class="no-data">No hay cumpleaños este mes</li>
+            <li *ngFor="let birthday of birthdays">
+                <div class="activity-icon birthday"></div>
+                <div class="activity-details">
+                    <span class="activity-title">{{ birthday.name }}</span>
+                    <span class="activity-date">{{ birthday.date }}</span>
+                </div>
+            </li>
+        </ul>
+    </div>
+
+    <div class="widget">
+        <div class="widget-header">
+            <h2>⚠️ Alertas de Contrato</h2>
+            <span class="badge" *ngIf="contractExpirations.length > 0">{{ contractExpirations.length }}</span>
+        </div>
+        <ul class="activity-list">
+            <li *ngIf="contractExpirations.length === 0" class="no-data">No hay vencimientos próximos</li>
+            <li *ngFor="let contract of contractExpirations">
+                <div class="activity-icon expiry"></div>
+                <div class="activity-details">
+                    <span class="activity-title">{{ contract.name }}</span>
+                    <span class="activity-date">Vence el: <strong>{{ contract.expiryDate }}</strong></span>
+                </div>
+            </li>
+        </ul>
+    </div>
+</div>

@@ -1,0 +1,335 @@
+﻿[33mÔØ»[39m Building...
+[32mÔ£ö[39m Building...
+Application bundle generation failed. [1.992 seconds] - 2026-03-02T20:42:09.874Z
+
+node.exe : [1m[31m[31mX [4
+1;31m[[41;97mERROR[41;31m][
+0m [1mTS2532: Object is 
+possibly 'undefined'.[0m 
+[1m[35m[plugin 
+angular-compiler][0m
+En C:\Users\Benit\AppData\Roam
+ing\npm\ng.ps1: 24 Carácter: 5
++     & "node$exe"  "$basedir/
+node_modules/@angular/cli/bin/
+ng.js" $arg ...
++     ~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~
+    + CategoryInfo          : 
+NotSpecified: ([1m    [31m[
+31mX...r-compiler][0m:String)
+ [], Rem    oteException
+    + FullyQualifiedErrorId : 
+NativeCommandError
+ 
+
+    src/app/Movements/movement
+s.html:49:65:
+[37m      49 Ôöé ...        
+<span *ngIf="move.tipo === 
+'PRESTAMO' && 
+[32mmove.cuotas > 1[37m">
+         ÔòÁ                  
+                              
+     [32m~~~~~~~~~~~~~~~[0m
+
+  Error occurs in the 
+template of component 
+MovimientosComponent.
+
+    src/app/Movements/movement
+s.ts:23:17:
+[37m      23 Ôöé     
+templateUrl: 
+[32m'./movements.html'[37m,
+         ÔòÁ                  
+[32m~~~~~~~~~~~~~~~~~~[0m
+
+
+[31mX [41;31m[[41;97mERROR
+[41;31m][0m [1mTS2532: 
+Object is possibly 
+'undefined'.[0m 
+[1m[35m[plugin 
+angular-compiler][0m
+
+    src/app/Movements/movement
+s.html:52:65:
+[37m      52 Ôöé ....tipo 
+!== 'PRESTAMO' || 
+[32mmove.cuotas <= 1[37m" 
+style="color: #9ca3af;">
+         ÔòÁ                  
+          
+[32m~~~~~~~~~~~~~~~~[0m
+
+  Error occurs in the 
+template of component 
+MovimientosComponent.
+
+    src/app/Movements/movement
+s.ts:23:17:
+[37m      23 Ôöé     
+templateUrl: 
+[32m'./movements.html'[37m,
+         ÔòÁ                  
+[32m~~~~~~~~~~~~~~~~~~[0m
+
+
+[31mX [41;31m[[41;97mERROR
+[41;31m][0m [1mTS7053: 
+Element implicitly has an 
+'any' type because expression 
+of type '"_id"' can't be used 
+to index type '{ nombre: 
+string; apellidos: string; 
+dni: string; sexo: string; 
+nacionalidad: string; 
+telefono: string; 
+contactoEmergencia: string; 
+numeroEmergencia: string; 
+fechaNacimiento: string; 
+direccion: string; ... 17 
+more ...; estado: string; }'.
+  Property '_id' does not 
+exist on type '{ nombre: 
+string; apellidos: string; 
+dni: string; sexo: string; 
+nacionalidad: string; 
+telefono: string; 
+contactoEmergencia: string; 
+numeroEmergencia: string; 
+fechaNacimiento: string; 
+direccion: string; ... 17 
+more ...; estado: string; 
+}'.[0m [1m[35m[plugin 
+angular-compiler][0m
+
+    src/app/employees/employee
+s.html:66:19:
+[37m      66 Ôöé             
+<h2>{{ 
+[32mnewEmployee['_id'][37m 
+? 'Editar Empleado' : 
+'Regis...
+         ÔòÁ                  
+  [32m~~~~~~~~~~~~~~~~~~[0m
+
+  Error occurs in the 
+template of component 
+GestionEmpleadosComponent.
+
+    src/app/employees/employee
+s.ts:24:17:
+[37m      24 Ôöé     
+templateUrl: 
+[32m'./employees.html'[37m,
+         ÔòÁ                  
+[32m~~~~~~~~~~~~~~~~~~[0m
+
+
+[31mX [41;31m[[41;97mERROR
+[41;31m][0m [1mTS7053: 
+Element implicitly has an 
+'any' type because expression 
+of type '"_id"' can't be used 
+to index type '{ nombre: 
+string; apellidos: string; 
+dni: string; sexo: string; 
+nacionalidad: string; 
+telefono: string; 
+contactoEmergencia: string; 
+numeroEmergencia: string; 
+fechaNacimiento: string; 
+direccion: string; ... 17 
+more ...; estado: string; }'.
+  Property '_id' does not 
+exist on type '{ nombre: 
+string; apellidos: string; 
+dni: string; sexo: string; 
+nacionalidad: string; 
+telefono: string; 
+contactoEmergencia: string; 
+numeroEmergencia: string; 
+fechaNacimiento: string; 
+direccion: string; ... 17 
+more ...; estado: string; 
+}'.[0m [1m[35m[plugin 
+angular-compiler][0m
+
+    src/app/employees/employee
+s.html:267:64:
+[37m      267 Ôöé 
+...class="btn-submit">{{ 
+[32mnewEmployee['_id'][37m 
+? 'Actualizar Datos' ...
+          ÔòÁ                 
+         
+[32m~~~~~~~~~~~~~~~~~~[0m
+
+  Error occurs in the 
+template of component 
+GestionEmpleadosComponent.
+
+    src/app/employees/employee
+s.ts:24:17:
+[37m      24 Ôöé     
+templateUrl: 
+[32m'./employees.html'[37m,
+         ÔòÁ                  
+[32m~~~~~~~~~~~~~~~~~~[0m
+
+
+[31mX [41;31m[[41;97mERROR
+[41;31m][0m [1mNG5002: 
+Parser Error: Lexer Error: 
+Unexpected character [├▒] at 
+column 4 in expression 
+[p.a├▒o] at column 5 in 
+[p.a├▒o] in C:\demoGestoe\plan
+illafinance\src\app\historial-
+pago\historial-pago.html@17:38
+[0m [1m[35m[plugin 
+angular-compiler][0m
+
+    src/app/historial-pago/his
+torial-pago.html:18:38:
+[37m      18 Ôöé             
+                {{p.mes}} 
+[32m{{p.a├▒o}[37m} 
+({{p.estado}})
+         ÔòÁ                  
+                     
+[32m~~~~~~~~[0m
+
+  Error occurs in the 
+template of component 
+HistorialPagoComponent.
+
+    src/app/historial-pago/his
+torial-pago.ts:9:17:
+[37m      9 Ôöé     
+templateUrl: [32m'./historial
+-pago.html'[37m,
+        ÔòÁ                  
+[32m~~~~~~~~~~~~~~~~~~~~~~~[0
+m
+
+
+[31mX [41;31m[[41;97mERROR
+[41;31m][0m [1mNG5002: 
+Parser Error: Unexpected 
+token 'Lexer Error: 
+Unexpected character [├▒] at 
+column 4 in expression 
+[p.a├▒o]' at column 5 in 
+[p.a├▒o] in C:\demoGestoe\plan
+illafinance\src\app\historial-
+pago\historial-pago.html@17:38
+[0m [1m[35m[plugin 
+angular-compiler][0m
+
+    src/app/historial-pago/his
+torial-pago.html:18:38:
+[37m      18 Ôöé             
+                {{p.mes}} 
+[32m{{p.a├▒o}[37m} 
+({{p.estado}})
+         ÔòÁ                  
+                     
+[32m~~~~~~~~[0m
+
+  Error occurs in the 
+template of component 
+HistorialPagoComponent.
+
+    src/app/historial-pago/his
+torial-pago.ts:9:17:
+[37m      9 Ôöé     
+templateUrl: [32m'./historial
+-pago.html'[37m,
+        ÔòÁ                  
+[32m~~~~~~~~~~~~~~~~~~~~~~~[0
+m
+
+
+[31mX [41;31m[[41;97mERROR
+[41;31m][0m [1mNG5002: 
+Parser Error: Lexer Error: 
+Unexpected character [├▒] at 
+column 15 in expression 
+[planillaData.a├▒o] at the 
+end of the expression 
+[planillaData.a├▒o] in C:\demo
+Gestoe\planillafinance\src\app
+\historial-pago\historial-pago
+.html@48:68[0m 
+[1m[35m[plugin 
+angular-compiler][0m
+
+    src/app/historial-pago/his
+torial-pago.html:49:68:
+[37m      49 Ôöé 
+...ard-value 
+period">{{planillaData.mes}} 
+[32m{{planillaData.a├▒o}[37m}
+</div>
+         ÔòÁ                  
+                         
+[32m~~~~~~~~~~~~~~~~~~~[0m
+
+  Error occurs in the 
+template of component 
+HistorialPagoComponent.
+
+    src/app/historial-pago/his
+torial-pago.ts:9:17:
+[37m      9 Ôöé     
+templateUrl: [32m'./historial
+-pago.html'[37m,
+        ÔòÁ                  
+[32m~~~~~~~~~~~~~~~~~~~~~~~[0
+m
+
+
+[31mX [41;31m[[41;97mERROR
+[41;31m][0m [1mNG5002: 
+Parser Error: Unexpected 
+token 'Lexer Error: 
+Unexpected character [├▒] at 
+column 15 in expression 
+[planillaData.a├▒o]' at 
+column 16 in 
+[planillaData.a├▒o] in C:\demo
+Gestoe\planillafinance\src\app
+\historial-pago\historial-pago
+.html@48:68[0m 
+[1m[35m[plugin 
+angular-compiler][0m
+
+    src/app/historial-pago/his
+torial-pago.html:49:68:
+[37m      49 Ôöé 
+...ard-value 
+period">{{planillaData.mes}} 
+[32m{{planillaData.a├▒o}[37m}
+</div>
+         ÔòÁ                  
+                         
+[32m~~~~~~~~~~~~~~~~~~~[0m
+
+  Error occurs in the 
+template of component 
+HistorialPagoComponent.
+
+    src/app/historial-pago/his
+torial-pago.ts:9:17:
+[37m      9 Ôöé     
+templateUrl: [32m'./historial
+-pago.html'[37m,
+        ÔòÁ                  
+[32m~~~~~~~~~~~~~~~~~~~~~~~[0
+m
+
+[39m[22m

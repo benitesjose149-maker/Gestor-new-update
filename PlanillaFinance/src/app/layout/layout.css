@@ -1,0 +1,241 @@
+:host {
+    display: block;
+    height: 100vh;
+    overflow: hidden;
+    --sidebar-width: 250px;
+    --sidebar-width-collapsed: 70px;
+    --header-height: 64px;
+    --primary-color: #2563eb;
+    --bg-color: #f4f6f8;
+}
+
+.dashboard-container {
+    display: flex;
+    height: 100%;
+    background-color: var(--bg-color);
+    transition: all 0.3s ease;
+}
+
+/* Sidebar Styles */
+.sidebar {
+    width: var(--sidebar-width);
+    background-color: #ffffff;
+    border-right: 1px solid #e5e7eb;
+    display: flex;
+    flex-direction: column;
+    transition: width 0.3s ease;
+    flex-shrink: 0;
+}
+
+.dashboard-container.collapsed .sidebar {
+    width: var(--sidebar-width-collapsed);
+}
+
+.sidebar-header {
+    height: var(--header-height);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 1rem;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.logo-area {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-weight: 700;
+    color: #111827;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.logo-icon {
+    background-color: var(--primary-color);
+    color: white;
+    padding: 0.25rem 0.5rem;
+    border-radius: 6px;
+    font-size: 0.9rem;
+}
+
+.toggle-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 1.2rem;
+    color: #6b7280;
+}
+
+.sidebar-nav {
+    padding: 1rem 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    flex-grow: 1;
+}
+
+.nav-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    color: #4b5563;
+    text-decoration: none;
+    border-radius: 8px;
+    transition: background-color 0.2s;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.nav-item:hover {
+    background-color: #f3f4f6;
+    color: #111827;
+}
+
+.nav-item.active {
+    background-color: var(--primary-color);
+    color: #ffffff;
+    font-weight: 600;
+    box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2), 0 2px 4px -1px rgba(37, 99, 235, 0.1);
+}
+
+.nav-item.active:hover {
+    background-color: #1d4ed8;
+    color: #ffffff;
+}
+
+.nav-item .icon {
+    font-size: 1.2rem;
+    width: 1.5rem;
+    text-align: center;
+}
+
+.nav-spacer {
+    flex-grow: 1;
+}
+
+.nav-separator {
+    padding: 0.75rem 1rem 0.35rem;
+    margin-top: 0.5rem;
+}
+
+.separator-text {
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: #9ca3af;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+}
+
+.nav-separator-line {
+    height: 1px;
+    background: #e5e7eb;
+    margin: 0.5rem 1rem;
+}
+
+.nav-item.logout {
+    color: #ef4444;
+    margin-top: 0.5rem;
+    font-weight: 600;
+    border: 1px solid #fecaca;
+    background-color: #fff1f2;
+}
+
+.nav-item.logout:hover {
+    background-color: #fee2e2;
+    border-color: #fca5a5;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(239, 68, 68, 0.1);
+}
+
+.logout-icon {
+    font-size: 1.1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+}
+
+.dashboard-container.collapsed .nav-item.logout {
+    padding: 0.75rem;
+    justify-content: center;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+
+/* Main Content Styles */
+.main-content {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.top-bar {
+    height: var(--header-height);
+    background-color: #ffffff;
+    border-bottom: 1px solid #e5e7eb;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 2rem;
+}
+
+.page-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #111827;
+    margin: 0;
+}
+
+.user-info {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    height: 100%;
+}
+
+.user-name {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: #374151;
+    white-space: nowrap;
+}
+
+.user-avatar {
+    width: 36px;
+    height: 36px;
+    background-color: #dbeafe;
+    color: #1e40af;
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 0.85rem;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+.content-area {
+    /* padding: 2rem; */
+    /* Padding handled by individual pages if needed, but usually content area has it */
+    overflow-y: auto;
+    flex-grow: 1;
+    height: 100%;
+}
+
+.sidebar-footer {
+    padding: 1rem;
+    border-top: 1px solid #f3f4f6;
+    text-align: center;
+}
+
+.sidebar-footer p {
+    font-size: 0.75rem;
+    color: #9ca3af;
+    margin: 0;
+}

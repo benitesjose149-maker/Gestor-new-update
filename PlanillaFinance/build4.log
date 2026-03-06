@@ -1,0 +1,73 @@
+﻿[33mÔØ»[39m Building...
+[32mÔ£ö[39m Building...
+Application bundle generation failed. [1.772 seconds] - 2026-03-02T20:57:37.401Z
+
+node.exe : [1m[31m[31mX [41;31
+m[[41;97mERROR[41;31m][0m 
+[1mTS2532: Object is possibly 
+'undefined'.[0m [1m[35m[plugin 
+angular-compiler][0m
+En C:\Users\Benit\AppData\Roaming\
+npm\ng.ps1: 24 Carácter: 5
++     & "node$exe"  "$basedir/node
+_modules/@angular/cli/bin/ng.js" 
+$arg ...
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~
+    + CategoryInfo          : Not 
+   Specified: ([1m[31m[31mX..  
+  .r-compiler][0m:String) [],    
+ RemoteException
+    + FullyQualifiedErrorId : Nat 
+   iveCommandError
+ 
+
+    src/app/Movements/movements.ht
+ml:49:65:
+[37m      49 Ôöé ...       <span 
+*ngIf="move.tipo === 'PRESTAMO' 
+&& [32mmove?.cuotas > 1[37m">
+         ÔòÁ                      
+                              
+[32m~~~~~~~~~~~~~~~~[0m
+
+  Error occurs in the template of 
+component MovimientosComponent.
+
+    src/app/Movements/movements.ts
+:23:17:
+[37m      23 Ôöé     
+templateUrl: 
+[32m'./movements.html'[37m,
+         ÔòÁ                  
+[32m~~~~~~~~~~~~~~~~~~[0m
+
+
+[31mX [41;31m[[41;97mERROR[41;
+31m][0m [1mTS2532: Object is 
+possibly 'undefined'.[0m 
+[1m[35m[plugin 
+angular-compiler][0m
+
+    src/app/Movements/movements.ht
+ml:52:65:
+[37m      52 Ôöé ...tipo !== 
+'PRESTAMO' || [32mmove?.cuotas 
+<= 1[37m" style="color: 
+#9ca3af;">
+         ÔòÁ                      
+     [32m~~~~~~~~~~~~~~~~~[0m
+
+  Error occurs in the template of 
+component MovimientosComponent.
+
+    src/app/Movements/movements.ts
+:23:17:
+[37m      23 Ôöé     
+templateUrl: 
+[32m'./movements.html'[37m,
+         ÔòÁ                  
+[32m~~~~~~~~~~~~~~~~~~[0m
+
+[39m[22m
