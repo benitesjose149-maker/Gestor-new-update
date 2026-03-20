@@ -31,13 +31,13 @@ async function consultarApiPeruDev(dni) {
                     try {
                         const jsonData = JSON.parse(data);
                         if (res.statusCode === 200 && jsonData.success && jsonData.data) {
+                            console.log('✔ ApiPeruDev: Datos encontrados.');
                             resolve({
                                 nombres: jsonData.data.nombres || '',
-                                apellidoPaterno: jsonData.data.apellido_paterno || '',
-                                apellidoMaterno: jsonData.data.apellido_materno || '',
+                                apellidos: `${jsonData.data.apellido_paterno || ''} ${jsonData.data.apellido_materno || ''}`.trim(),
                                 dni: jsonData.data.numero || dni,
                                 direccion: jsonData.data.direccion || '',
-                                nombreCompleto: jsonData.data.nombre_completo || ''
+                                nacionalidad: 'Peruana'
                             });
                         } else {
                             resolve(null);
@@ -54,14 +54,15 @@ async function consultarApiPeruDev(dni) {
 
 async function consultarRENIEC(dni) {
     try {
-        const token = process.env.APIS_NET_PE_TOKEN || 'sk_10323.yxUjIJ95w9Eit4g0OWr19fNjQ74ypeAT';
-        const url = `https://api.apis.net.pe/v1/dni?numero=${dni}`;
+        const token = process.env.APIS_NET_PE_TOKEN || 'sk_14038.HppYB1ULaHGSNFFOCKFyORMdFUlE3Nzt';
+        // Usando v2 que es más estable y compatible con tokens sk_
+        const url = `https://api.apis.net.pe/v2/reniec/dni?numero=${dni}`;
 
         const options = {
             headers: {
                 'Accept': 'application/json',
                 'Authorization': `Bearer ${token}`,
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
             }
         };
 
@@ -73,14 +74,15 @@ async function consultarRENIEC(dni) {
                 res.on('end', () => {
                     try {
                         const jsonData = JSON.parse(data);
+                        // En v2 la estructura puede variar ligeramente
                         if (res.statusCode === 200 && jsonData) {
+                            console.log('✔ APIs.net.pe (v2): Datos encontrados.');
                             resolve({
                                 nombres: jsonData.nombres || '',
-                                apellidoPaterno: jsonData.apellidoPaterno || '',
-                                apellidoMaterno: jsonData.apellidoMaterno || '',
+                                apellidos: `${jsonData.apellidoPaterno || ''} ${jsonData.apellidoMaterno || ''}`.trim(),
                                 dni: jsonData.numeroDocumento || dni,
                                 direccion: jsonData.direccion || '',
-                                nombreCompleto: `${jsonData.nombres} ${jsonData.apellidoPaterno} ${jsonData.apellidoMaterno}`.trim()
+                                nacionalidad: 'Peruana'
                             });
                         } else {
                             resolve(null);

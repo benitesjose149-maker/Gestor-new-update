@@ -1,12 +1,6 @@
 import fs from 'fs';
 import path from 'path';
 
-/**
- * Reads a secret from Docker Secrets (/run/secrets/) or environment variables.
- * @param {string} secretName The name of the secret/env var.
- * @param {string} defaultValue Optional default value.
- * @returns {string} The secret value.
- */
 export function getSecret(secretName, defaultValue = null) {
     // 1. Try Docker Secrets
     const secretPath = path.join('/run/secrets', secretName);

@@ -26,8 +26,9 @@ export const poolPlanilla = new mssql.ConnectionPool(configPlanilla)
         return pool;
     })
     .catch(err => {
-        console.error('PLANILLA Database Connection Failed: ', err);
-        throw err;
+        console.error('PLANILLA Database Connection Failed (Process will continue): ', err.message);
+        // We return the error so that callers can see it crashed when they await it
+        return Promise.reject(err);
     });
 
 export const poolFinance = new mssql.ConnectionPool(configFinance)
@@ -37,8 +38,8 @@ export const poolFinance = new mssql.ConnectionPool(configFinance)
         return pool;
     })
     .catch(err => {
-        console.error('FINANCE Database Connection Failed: ', err);
-        throw err;
+        console.error('FINANCE Database Connection Failed (Process will continue): ', err.message);
+        return Promise.reject(err);
     });
 
 export default mssql;

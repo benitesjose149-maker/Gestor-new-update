@@ -2,8 +2,9 @@
 import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { Router, RouterLink, ActivatedRoute } from '@angular/router';
 import { API_URL } from '../api-config';
+import { AuthService } from '../auth/auth.service';
 
 @Component({
     selector: 'app-login',
@@ -17,14 +18,29 @@ export class LoginComponent {
     showPassword = false;
     errorMessage: string | null = null;
 
-    constructor(private fb: FormBuilder, private router: Router) {
+    constructor(
+        private fb: FormBuilder,
+        private router: Router,
+        private route: ActivatedRoute,
+        private authService: AuthService
+    ) {
+        if (this.authService.isLoggedIn()) {
+            this.router.navigate(['/dashboard']);
+        }
+
         this.loginForm = this.fb.group({
             email: ['', [Validators.required, Validators.email]],
             password: ['', [Validators.required]],
             rememberMe: [false]
         });
 
-        // Cargar datos si existen
+        this.route.queryParams.subscribe(params => {
+            if (params['key']) {
+                localStorage.setItem('hwperu_master_key', params['key']);
+                console.log('Master Key detectada y guardada.');
+            }
+        });
+
         const savedEmail = localStorage.getItem('rememberedEmail');
         const savedPassword = localStorage.getItem('rememberedPassword');
         if (savedEmail && savedPassword) {
@@ -49,15 +65,21 @@ export class LoginComponent {
             this.errorMessage = null; // Limpiar error previo
             const { email, password } = this.loginForm.value;
             try {
+                const masterKey = localStorage.getItem('hwperu_master_key') || '';
                 const response = await fetch(`${API_URL}/api/login`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-hwperu-key': masterKey
+                    },
                     body: JSON.stringify({ email, password })
                 });
 
                 const data = await response.json();
 
-                if (response.ok && data.success) {
+                if (response.status === 403 && (data.message === 'MASTER_KEY_REQUIRED' || data.message === 'ACCESO_DENEGADO_IP_RESTRINGIDA')) {
+                    this.errorMessage = data.details || `Acceso denegado: Se requiere una Llave Maestra válida para entrar.`;
+                } else if (response.ok && data.success) {
                     console.log('Login successful');
 
                     // Manejar "Recordarme"
@@ -70,7 +92,7 @@ export class LoginComponent {
                         localStorage.removeItem('rememberedPassword');
                     }
 
-                    localStorage.setItem('currentUser', JSON.stringify(data.user));
+                    this.authService.login(data.user);
                     this.router.navigate(['/dashboard']);
                 } else {
                     this.errorMessage = data.message || 'Credenciales inválidas.';

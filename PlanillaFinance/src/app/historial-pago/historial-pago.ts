@@ -1,7 +1,7 @@
 import { ChangeDetectorRef, Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { API_URL } from '../api-config';
+import { API_URL, getAuthHeaders } from '../api-config';
 
 @Component({
     selector: 'app-historial-pago',
@@ -39,7 +39,9 @@ export class HistorialPagoComponent {
                 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'
             ];
 
-            const response = await fetch(API_URL + '/api/historial-pago');
+            const response = await fetch(API_URL + '/api/historial-pago', {
+                headers: getAuthHeaders()
+            });
             let savedPeriodos: any[] = [];
             if (response.ok) {
                 savedPeriodos = await response.json();
@@ -65,7 +67,9 @@ export class HistorialPagoComponent {
         this.errorNotFound = false;
 
         try {
-            const response = await fetch(API_URL + `/api/historial-pago/${this.selectedPeriodo}`);
+            const response = await fetch(API_URL + `/api/historial-pago/${this.selectedPeriodo}`, {
+                headers: getAuthHeaders()
+            });
             if (response.ok) {
                 this.planillaData = await response.json();
             } else {

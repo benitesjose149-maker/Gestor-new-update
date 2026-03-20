@@ -41,7 +41,7 @@
                     <th>Horas <br> Extras</th>
                     <th>Monto Hora <br> Extra</th>
                     <th>Entidad</th>
-                    <th>Desc.</th>
+                    <th>Descuento <br> AFO</th>
                     <th>Adelanto</th>
                     <th>Préstamo</th>
                     <th>Faltas<br>Días</th>
@@ -135,6 +135,16 @@
                         la planilla.</td>
                 </tr>
             </tbody>
+            <tfoot *ngIf="employees.length > 0">
+                <tr style="background-color: #f9fafb; font-weight: 700;">
+                    <td colspan="15" class="text-right" style="padding: 1rem;">TOTAL NETO A PAGAR:</td>
+                    <td class="text-right"
+                        style="padding: 1rem; color: #1e40af; font-size: 1.1rem; border-left: 2px solid #e5e7eb; border-right: 2px solid #e5e7eb;">
+                        S/ {{totalNetoAPagar | number:'1.2-2'}}
+                    </td>
+                    <td colspan="3"></td>
+                </tr>
+            </tfoot>
         </table>
     </div>
 </div>

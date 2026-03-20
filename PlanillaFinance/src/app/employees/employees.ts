@@ -2,7 +2,7 @@
 import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { API_URL } from '../api-config';
+import { API_URL, getAuthHeaders } from '../api-config';
 
 interface Employee {
     _id?: string;
@@ -14,7 +14,6 @@ interface Employee {
     departamento: string;
     estado: string;
     sueldo?: number;
-    // ... others
     [key: string]: any;
 }
 
@@ -60,64 +59,32 @@ interface EmployeeFormData {
 export class GestionEmpleadosComponent {
     searchTerm: string = '';
     showAddModal: boolean = false;
+    submitted: boolean = false;
+    searchingDni: boolean = false;
+
+    // Leave modal
+    showLeaveModal: boolean = false;
+    leaveReason: string = '';
+    selectedEmployeeForLeave: any = null;
+
+    // Notification modal
+    showNotification: boolean = false;
+    notificationMessage: string = '';
+    notificationSuccess: boolean = true;
 
     employees: Employee[] = [];
     filteredEmployees: Employee[] = [];
 
     newEmployee: EmployeeFormData = {
-        // Personal Info
-        nombre: '',
-        apellidos: '',
-        dni: '',
-        sexo: '',
-        nacionalidad: '',
-        telefono: '',
-        contactoEmergencia: '',
-        numeroEmergencia: '',
-        fechaNacimiento: '',
-        direccion: '',
-
-        email: '',
-        cargo: '',
-        departamento: '',
-        tipoTrabajador: 'PLANILLA',
-        regimenPensionario: 'SNP/ONP',
-        sueldo: 0,
-        asignacionFamiliar: false,
+        nombre: '', apellidos: '', dni: '', sexo: '', nacionalidad: '', telefono: '', contactoEmergencia: '', numeroEmergencia: '', fechaNacimiento: '', direccion: '',
+        email: '', cargo: '', departamento: '', tipoTrabajador: 'PLANILLA', regimenPensionario: 'SNP/ONP', sueldo: 0, asignacionFamiliar: false,
         calculoAfpMinimo: false,
-
-        fechaInicio: new Date().toISOString().split('T')[0],
-        fechaFinContrato: '',
-        tipoContrato: '',
-        horarioTrabajo: '',
-
-        banco: '',
-        tipoCuenta: '',
-        numeroCuenta: '',
-        cci: '',
-
-        nivelEducativo: '',
-
-        estado: 'Activo'
+        fechaInicio: new Date().toISOString().split('T')[0], fechaFinContrato: '', tipoContrato: '', horarioTrabajo: '',
+        banco: '', tipoCuenta: '', numeroCuenta: '', cci: '', nivelEducativo: '', estado: 'Activo'
     };
 
-    // List of available roles
-    cargos: string[] = [
-        'Técnico',
-        'Administrador',
-        'Vendedor',
-        'Gerente',
-        'Recepcionista',
-        'Programador',
-        'Administrativo',
-        'Ventas',
-        'Gerencia',
-        'Soporte Técnico',
-        'Diseño',
-        'Marketing'
-    ];
+    cargos: string[] = ['Técnico', 'Administrador', 'Vendedor', 'Gerente', 'Recepcionista', 'Programador', 'Administrativo', 'Ventas', 'Gerencia', 'Soporte Técnico', 'Diseño', 'Marketing'];
 
-    // Map of Departments per Role
     departamentosPorCargo: { [key: string]: string[] } = {
         'Técnico': ['Técnico de Soporte', 'Infraestructura', 'Soporte N2'],
         'Administrador': ['Administración General', 'Contabilidad', 'RRHH', 'Tesorería'],
@@ -133,7 +100,6 @@ export class GestionEmpleadosComponent {
         'Marketing': ['Marketing Digital', 'Community Management', 'SEO/SEM', 'Content Creator']
     };
 
-    // Current available departments options
     availableDepartamentos: string[] = [];
 
     constructor() {
@@ -141,14 +107,12 @@ export class GestionEmpleadosComponent {
     }
 
     onCargoChange() {
-        // Update available departments based on selected Cargo
         const selectedCargo = this.newEmployee.cargo;
         if (selectedCargo && this.departamentosPorCargo[selectedCargo]) {
             this.availableDepartamentos = this.departamentosPorCargo[selectedCargo];
         } else {
             this.availableDepartamentos = [];
         }
-        // Reset departamento selection if it's no longer valid
         if (!this.availableDepartamentos.includes(this.newEmployee.departamento)) {
             this.newEmployee.departamento = '';
         }
@@ -167,11 +131,11 @@ export class GestionEmpleadosComponent {
 
     async loadEmployees() {
         try {
-            const response = await fetch(API_URL + '/api/empleados');
+            const response = await fetch(API_URL + '/api/empleados', {
+                headers: getAuthHeaders()
+            });
             if (response.ok) {
                 const rawData = await response.json();
-                console.log('Raw data:', rawData);
-
                 this.employees = rawData.map((emp: any) => ({
                     ...emp,
                     nombre: emp.nombre || emp.name || 'Sin Nombre',
@@ -184,15 +148,17 @@ export class GestionEmpleadosComponent {
                     fechaInicio: emp.fechaInicio || emp.startDate,
                     sueldo: emp.sueldo || emp.salary,
                 }));
-
-                console.log('Normalized employees:', this.employees);
                 this.filterEmployees();
-            } else {
-                console.error('Failed to load employees:', response.statusText);
             }
         } catch (error) {
             console.error('Error loading employees:', error);
         }
+    }
+
+    onDniInput() {
+        setTimeout(() => {
+            this.newEmployee.dni = (this.newEmployee.dni || '').toString().replace(/[^0-9]/g, '').slice(0, 8);
+        }, 0);
     }
 
     async searchDni() {
@@ -200,23 +166,25 @@ export class GestionEmpleadosComponent {
             alert('Por favor ingrese un DNI válido de 8 dígitos.');
             return;
         }
-
+        this.searchingDni = true;
         try {
-            const response = await fetch(API_URL + `/api/reniec/${this.newEmployee.dni}`);
-
-            if (!response.ok) {
+            const response = await fetch(API_URL + `/api/reniec/${this.newEmployee.dni}`, {
+                headers: getAuthHeaders()
+            });
+            if (response.ok) {
+                const data = await response.json();
+                this.newEmployee.nombre = data.nombres || '';
+                this.newEmployee.apellidos = data.apellidos || '';
+                this.newEmployee.direccion = data.direccion || this.newEmployee.direccion;
+                this.newEmployee.nacionalidad = data.nacionalidad || 'Peruana';
+            } else {
                 throw new Error('Error en la consulta');
             }
-
-            const data = await response.json();
-
-            this.newEmployee.nombre = data.nombres || '';
-            this.newEmployee.apellidos = `${data.apellidoPaterno || ''} ${data.apellidoMaterno || ''}`.trim();
-
-
         } catch (error) {
             console.error('Error buscar DNI:', error);
             alert('No se pudieron obtener los datos del DNI. Por favor ingrese manualmente.');
+        } finally {
+            this.searchingDni = false;
         }
     }
 
@@ -228,9 +196,9 @@ export class GestionEmpleadosComponent {
         );
     }
 
-    // Interface update (if it was defined near top, but here assuming I edit openAddModal)
     openAddModal() {
         this.showAddModal = true;
+        this.submitted = false;
         this.newEmployee = {
             nombre: '', apellidos: '', dni: '', sexo: '', nacionalidad: '', telefono: '', contactoEmergencia: '', numeroEmergencia: '', fechaNacimiento: '', direccion: '',
             email: '', cargo: '', departamento: '', tipoTrabajador: 'PLANILLA', regimenPensionario: 'SNP/ONP', sueldo: 0, asignacionFamiliar: false,
@@ -246,75 +214,59 @@ export class GestionEmpleadosComponent {
     }
 
     async saveEmployee() {
-        if (
-            this.newEmployee.dni &&
-            this.newEmployee.nombre &&
-            this.newEmployee.apellidos &&
-            this.newEmployee.telefono &&
-            this.newEmployee.direccion &&
-            this.newEmployee.fechaNacimiento &&
-            this.newEmployee.cargo &&
-            this.newEmployee.departamento
-        ) {
-            try {
-                const isEditing = !!(this.newEmployee as any)._id;
-                const url = isEditing
-                    ? API_URL + `/api/empleados/${(this.newEmployee as any)._id}`
-                    : API_URL + '/api/empleados';
-
-                const method = isEditing ? 'PUT' : 'POST';
-
-                const response = await fetch(url, {
-                    method: method,
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(this.newEmployee)
-                });
-
-                if (response.ok) {
-                    alert(`Empleado ${isEditing ? 'actualizado' : 'registrado'} exitosamente.`);
-                    this.closeAddModal();
-                    this.loadEmployees();
-                } else {
-                    const err = await response.json();
-                    alert(`Error al ${isEditing ? 'actualizar' : 'registrar'}: ` + (err.error || 'Desconocido'));
-                }
-            } catch (error) {
-                console.error('Error saving:', error);
-                alert('Error de conexión.');
+        const isEditing = !!(this.newEmployee as any)._id;
+        this.submitted = true;
+        if (!isEditing) {
+            if (!this.newEmployee.dni || !this.newEmployee.nombre || !this.newEmployee.apellidos || !this.newEmployee.telefono || !this.newEmployee.direccion || !this.newEmployee.fechaNacimiento || !this.newEmployee.cargo || !this.newEmployee.departamento) {
+                this.showNotif('Por favor complete todos los campos obligatorios en rojo.', false);
+                return;
             }
-        } else {
-            alert('Por favor complete todos los campos obligatorios:\n- DNI\n- Nombre y Apellidos\n- Celular\n- Dirección\n- Fecha de Nacimiento\n- Departamento y Cargo');
+        }
+        try {
+            const url = isEditing ? API_URL + `/api/empleados/${(this.newEmployee as any)._id}` : API_URL + '/api/empleados';
+            const method = isEditing ? 'PUT' : 'POST';
+            const response = await fetch(url, {
+                method: method,
+                headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+                body: JSON.stringify(this.newEmployee)
+            });
+            if (response.ok) {
+                this.closeAddModal();
+                this.loadEmployees();
+                this.showNotif(`Empleado ${isEditing ? 'actualizado' : 'registrado'} exitosamente.`, true);
+            } else {
+                const err = await response.json();
+                this.showNotif('Error: ' + (err.error || 'Desconocido'), false);
+            }
+        } catch (error) {
+            this.showNotif('Error de conexión.', false);
         }
     }
 
+    showNotif(message: string, success: boolean) {
+        this.notificationMessage = message;
+        this.notificationSuccess = success;
+        this.showNotification = true;
+        setTimeout(() => this.showNotification = false, 2500);
+    }
+
+    closeNotification() { this.showNotification = false; }
+
     viewEmployee(employee: any) {
-        this.newEmployee = {
-            ...employee,
-            fechaNacimiento: this.formatDate(employee.fechaNacimiento),
-            fechaInicio: this.formatDate(employee.fechaInicio),
-            fechaFinContrato: this.formatDate(employee.fechaFinContrato)
-        };
+        this.submitted = false;
+        this.newEmployee = { ...employee, fechaNacimiento: this.formatDate(employee.fechaNacimiento), fechaInicio: this.formatDate(employee.fechaInicio), fechaFinContrato: this.formatDate(employee.fechaFinContrato) };
         this.showAddModal = true;
-        // Populate departments for the selected employee's role so it shows correctly
         if (this.newEmployee.cargo && this.departamentosPorCargo[this.newEmployee.cargo]) {
             this.availableDepartamentos = this.departamentosPorCargo[this.newEmployee.cargo];
         } else {
-            // If cargo not in list (e.g. imported legacy data), keep it as is or add to list?
-            // For now, allow viewing current value even if not in list, but dropdown might be empty options with value set
             this.availableDepartamentos = [this.newEmployee.departamento];
         }
-        console.log('Visualizando empleado', this.newEmployee);
     }
 
     editEmployee(employee: any) {
-        this.newEmployee = {
-            ...employee,
-            fechaNacimiento: this.formatDate(employee.fechaNacimiento),
-            fechaInicio: this.formatDate(employee.fechaInicio),
-            fechaFinContrato: this.formatDate(employee.fechaFinContrato)
-        };
+        this.submitted = false;
+        this.newEmployee = { ...employee, fechaNacimiento: this.formatDate(employee.fechaNacimiento), fechaInicio: this.formatDate(employee.fechaInicio), fechaFinContrato: this.formatDate(employee.fechaFinContrato) };
         this.showAddModal = true;
-        // Populate departments for editing
         if (this.newEmployee.cargo && this.departamentosPorCargo[this.newEmployee.cargo]) {
             this.availableDepartamentos = this.departamentosPorCargo[this.newEmployee.cargo];
         } else {
@@ -322,21 +274,42 @@ export class GestionEmpleadosComponent {
         }
     }
 
-    async deleteEmployee(employee: any) {
-        if (confirm(`¿Está seguro de dar de baja a ${employee.nombre}?`)) {
-            try {
-                const response = await fetch(API_URL + `/api/empleados/${employee._id}`, {
-                    method: 'DELETE'
-                });
+    openLeaveModal(employee: any) {
+        this.selectedEmployeeForLeave = employee;
+        this.leaveReason = '';
+        this.showLeaveModal = true;
+    }
 
-                if (response.ok) {
-                    this.loadEmployees();
-                } else {
-                    alert('Error al dar de baja');
-                }
-            } catch (error) {
-                console.error('Error deleting:', error);
+    closeLeaveModal() {
+        this.showLeaveModal = false;
+        this.selectedEmployeeForLeave = null;
+        this.leaveReason = '';
+    }
+
+    async confirmLeave() {
+        if (!this.selectedEmployeeForLeave) return;
+        if (!this.leaveReason.trim()) {
+            alert('Por favor ingrese el motivo de la baja');
+            return;
+        }
+        try {
+            const response = await fetch(API_URL + `/api/empleados/${this.selectedEmployeeForLeave._id}`, {
+                method: 'DELETE',
+                headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+                body: JSON.stringify({ motivo: this.leaveReason })
+            });
+            if (response.ok) {
+                const nombreEmpleado = this.selectedEmployeeForLeave.nombre;
+                this.closeLeaveModal();
+                this.loadEmployees();
+                this.showNotif(`Empleado ${nombreEmpleado} dado de baja y archivado.`, true);
+            } else {
+                const errorData = await response.json().catch(() => ({ error: 'Error desconocido' }));
+                this.showNotif('Error: ' + (errorData.error || 'No se pudo procesar la baja'), false);
             }
+        } catch (error) {
+            console.error('Error de conexión:', error);
+            this.showNotif('Error de conexión con el servidor.', false);
         }
     }
 }

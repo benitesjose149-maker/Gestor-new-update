@@ -1,6 +1,7 @@
 import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { RouterLink, RouterLinkActive, RouterOutlet, Router } from '@angular/router';
+import { AuthService } from '../auth/auth.service';
 
 @Component({
     selector: 'app-layout',
@@ -11,13 +12,18 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 })
 export class LayoutComponent {
     isSidebarCollapsed = false;
+    isMobileMenuOpen = false;
     currentUser: any = null;
 
-    constructor() {
-        const userJson = localStorage.getItem('currentUser');
-        if (userJson) {
-            this.currentUser = JSON.parse(userJson);
-        }
+    constructor(private authService: AuthService, private router: Router) {
+        this.authService.currentUser.subscribe(user => {
+            this.currentUser = user;
+        });
+    }
+
+    logout(event: Event) {
+        event.preventDefault();
+        this.authService.logout();
     }
 
     hasAccess(section: string): boolean {
@@ -38,6 +44,16 @@ export class LayoutComponent {
     }
 
     toggleSidebar() {
-        this.isSidebarCollapsed = !this.isSidebarCollapsed;
+        if (window.innerWidth <= 768) {
+            this.isMobileMenuOpen = !this.isMobileMenuOpen;
+        } else {
+            this.isSidebarCollapsed = !this.isSidebarCollapsed;
+        }
+    }
+
+    closeMobileMenu() {
+        if (window.innerWidth <= 768) {
+            this.isMobileMenuOpen = false;
+        }
     }
 }

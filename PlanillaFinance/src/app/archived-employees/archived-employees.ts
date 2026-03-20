@@ -1,7 +1,7 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { API_URL } from '../api-config';
+import { API_URL, getAuthHeaders } from '../api-config';
 
 interface Employee {
     _id?: string;
@@ -119,7 +119,9 @@ export class ArchivedEmployeesComponent implements OnInit {
 
     async loadArchivedEmployees() {
         try {
-            const response = await fetch(API_URL + '/api/empleados-archivados');
+            const response = await fetch(API_URL + '/api/empleados-archivados', {
+                headers: getAuthHeaders()
+            });
             if (response.ok) {
                 const rawData = await response.json();
                 this.employees = rawData.map((emp: any) => ({
@@ -134,6 +136,7 @@ export class ArchivedEmployeesComponent implements OnInit {
                     fechaInicio: emp.fechaInicio || emp.startDate,
                     fechaFinContrato: emp.fechaFinContrato || 'Desconocida',
                     sueldo: emp.sueldo || emp.salary,
+                    tabla: emp.tabla // Include the source table information
                 }));
                 this.filterEmployees();
             }
@@ -199,7 +202,7 @@ export class ArchivedEmployeesComponent implements OnInit {
 
             const response = await fetch(url, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: getAuthHeaders(),
                 body: JSON.stringify({ ...this.newEmployee, ACTIVO: 1 })
             });
 
@@ -213,6 +216,33 @@ export class ArchivedEmployeesComponent implements OnInit {
             }
         } catch (error) {
             console.error('Error rehiring:', error);
+            alert('Error de conexión.');
+        }
+    }
+
+    async deleteEmployee(employee: any) {
+        const id = employee.id || employee._id;
+        const tabla = employee.tabla;
+
+        if (!confirm(`¿Está seguro de que desea eliminar permanentemente a ${employee.nombre} ${employee.apellidos}? Esta acción no se puede deshacer.`)) {
+            return;
+        }
+
+        try {
+            const response = await fetch(API_URL + `/api/empleados-archivados/${id}?tabla=${tabla}`, {
+                method: 'DELETE',
+                headers: getAuthHeaders()
+            });
+
+            if (response.ok) {
+                alert('Empleado eliminado permanentemente.');
+                this.loadArchivedEmployees();
+            } else {
+                const err = await response.json();
+                alert('Error al eliminar: ' + (err.error || 'Desconocido'));
+            }
+        } catch (error) {
+            console.error('Error deleting:', error);
             alert('Error de conexión.');
         }
     }

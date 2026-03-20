@@ -1,17 +1,54 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import axios from 'axios';
+import cron from 'node-cron';
 import { poolPlanilla, poolFinance } from './config/dbSql.js';
 import mssql from 'mssql';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { ipFilter } from './utils/ipFilter.js';
+import dniRoutes from './routes/dniRoutes.js';
+import gmailRoutes from './integrations/gmailRoutes.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
+app.set('trust proxy', true);
+
+const corsOptions = {
+    origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : '*',
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-hwperu-key'],
+    credentials: true
+};
+app.use(cors(corsOptions));
+
 const port = 3005;
 
-app.use(cors());
 app.use(express.json());
 
-import dniRoutes from './routes/dniRoutes.js';
+app.use((req, res, next) => {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl} - IP: ${req.ip}`);
+    next();
+});
+
+const distPath = path.join(__dirname, 'public');
+app.use(express.static(distPath));
+
+
+app.get('/api/debug-ip', (req, res) => {
+    const clientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress;
+    res.json({
+        detectedIp: clientIp,
+        forwardedFor: req.headers['x-forwarded-for'],
+        remoteAddress: req.socket.remoteAddress
+    });
+});
+
 app.use('/api/reniec', dniRoutes);
+app.use('/api', gmailRoutes);
 
 app.get('/api/dashboard/stats', async (req, res) => {
     try {
@@ -19,14 +56,12 @@ app.get('/api/dashboard/stats', async (req, res) => {
         const now = new Date();
         const currentMonth = now.getMonth() + 1;
 
-        // 1. Nómina Total (Sueldos Base) y Conteo
         const payrollRes = await pool.request()
             .query('SELECT SUM(SUELDO_BASE) as total, COUNT(*) as count FROM EMPLOYEES WHERE ACTIVO = 1 OR ACTIVO IS NULL');
 
         const totalPayroll = payrollRes.recordset[0].total || 0;
         const activeCount = payrollRes.recordset[0].count || 0;
 
-        // 2. Cumpleaños del Mes
         const birthdayRes = await pool.request()
             .input('month', mssql.Int, currentMonth)
             .query('SELECT NOMBRE, APELLIDOS, FECHA_NACIMIENTO FROM EMPLOYEES WHERE MONTH(FECHA_NACIMIENTO) = @month AND (ACTIVO = 1 OR ACTIVO IS NULL)');
@@ -36,7 +71,6 @@ app.get('/api/dashboard/stats', async (req, res) => {
             date: emp.FECHA_NACIMIENTO ? new Date(emp.FECHA_NACIMIENTO).toLocaleDateString('es-ES', { day: '2-digit', month: 'long' }) : 'N/A'
         }));
 
-        // 3. Vencimiento de Contrato (Próximos 30 días)
         const expiryRes = await pool.request()
             .query(`
                 SELECT NOMBRE, APELLIDOS, FECHA_FIN_CONTRATO 
@@ -68,6 +102,8 @@ app.get('/api/dashboard/stats', async (req, res) => {
 
 let lastSyncTime = null;
 const SYNC_COOLDOWN = 5 * 60 * 1000;
+let cachedThisMonthPaid = 0;
+let cachedThisMonthTotalGross = 0;
 
 app.post('/api/login', async (req, res) => {
     try {
@@ -75,7 +111,6 @@ app.post('/api/login', async (req, res) => {
         const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
         const pool = await poolPlanilla;
 
-        // 1. Verificar si está bloqueado (3 intentos fallidos en los últimos 30 min)
         const checkBlockRes = await pool.request()
             .input('email', mssql.VarChar, email)
             .input('ip', mssql.VarChar, ip)
@@ -101,7 +136,6 @@ app.post('/api/login', async (req, res) => {
 
         const success = result.recordset.length > 0;
 
-        // 2. Registrar el intento
         await pool.request()
             .input('email', mssql.VarChar, email)
             .input('ip', mssql.VarChar, ip)
@@ -111,7 +145,6 @@ app.post('/api/login', async (req, res) => {
         if (success) {
             const user = result.recordset[0];
 
-            // Si tiene éxito, lipiamos intentos fallidos previos para este email/ip
             await pool.request()
                 .input('email', mssql.VarChar, email)
                 .input('ip', mssql.VarChar, ip)
@@ -122,7 +155,7 @@ app.post('/api/login', async (req, res) => {
                 message: 'Login exitoso',
                 user: {
                     email: user.EMAIL,
-                    fullName: user.FULL_NAME, // Enviamos el nombre completo
+                    fullName: user.FULL_NAME,
                     rol: user.ROL,
                     permissions: {
                         planilla: !!user.CAN_PLANILLA || user.ROL === 'SUPER_ADMIN',
@@ -142,7 +175,6 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// Endpoints de Administración de Seguridad
 app.get('/api/admin/security/blocked', async (req, res) => {
     try {
         const pool = await poolPlanilla;
@@ -212,7 +244,6 @@ app.post('/api/admin/create-user', async (req, res) => {
         const { email, password, full_name, role, permissions = {} } = req.body;
         const pool = await poolPlanilla;
 
-        // Verificar si el usuario ya existe
         const checkUser = await pool.request()
             .input('email', mssql.VarChar, email)
             .query('SELECT ID_USERS FROM USERS WHERE EMAIL = @email');
@@ -286,7 +317,7 @@ app.get('/api/empleados', async (req, res) => {
 app.get('/api/empleados-archivados', async (req, res) => {
     try {
         const pool = await poolPlanilla;
-        const result = await pool.request().query("SELECT * FROM EMPLOYEES WHERE ACTIVO = 0");
+        const result = await pool.request().query("SELECT * FROM EMPLOYEES WHERE ACTIVO = 0 AND CAST(ID_EMPLOYEE AS NVARCHAR(50)) NOT IN (SELECT EmpleadoOriginalId FROM EMPLEADOS_ARCHIVADOS WHERE EmpleadoOriginalId IS NOT NULL)");
         const empleados = result.recordset.map(emp => ({
             _id: emp.ID_EMPLOYEE,
             id: emp.ID_EMPLOYEE,
@@ -314,7 +345,8 @@ app.get('/api/empleados-archivados', async (req, res) => {
             numeroCuenta: emp.NUMERO_CUENTA,
             cci: emp.CCI,
             email: emp.CORREO,
-            estado: 'Inactivo'
+            estado: 'Inactivo',
+            tabla: 'EMPLOYEES'
         }));
 
         const resultArchived = await pool.request().query('SELECT * FROM EMPLEADOS_ARCHIVADOS');
@@ -347,12 +379,46 @@ app.get('/api/empleados-archivados', async (req, res) => {
             email: (emp.Correo === '-' ? null : emp.Correo) || null,
             estado: 'Inactivo (Histórico)',
             motivo: emp.Motivo,
+            tabla: 'EMPLEADOS_ARCHIVADOS'
         }));
 
-        res.json([...empleados, ...historicosMongo]);
+        const allArchived = [...empleados, ...historicosMongo];
+
+        allArchived.sort((a, b) => {
+            const dateA = a.fechaFinContrato ? new Date(a.fechaFinContrato).getTime() : 0;
+            const dateB = b.fechaFinContrato ? new Date(b.fechaFinContrato).getTime() : 0;
+            return dateB - dateA;
+        });
+
+        res.json(allArchived);
     } catch (error) {
         console.error('Error al obtener empleados archivados de SQL:', error);
         res.status(500).json({ error: 'Error al obtener empleados archivados' });
+    }
+});
+
+app.delete('/api/empleados-archivados/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { tabla } = req.query;
+        const pool = await poolPlanilla;
+
+        if (tabla === 'EMPLOYEES') {
+            await pool.request()
+                .input('id', mssql.Int, id)
+                .query('DELETE FROM EMPLOYEES WHERE ID_EMPLOYEE = @id');
+        } else if (tabla === 'EMPLEADOS_ARCHIVADOS') {
+            await pool.request()
+                .input('id', mssql.Int, id)
+                .query('DELETE FROM EMPLEADOS_ARCHIVADOS WHERE Id = @id');
+        } else {
+            return res.status(400).json({ error: 'Tabla no válida especificada' });
+        }
+
+        res.json({ message: 'Empleado eliminado permanentemente' });
+    } catch (error) {
+        console.error('Error al eliminar empleado permanentemente:', error);
+        res.status(500).json({ error: 'Error al eliminar empleado' });
     }
 });
 
@@ -483,7 +549,6 @@ app.put('/api/empleados/:id', async (req, res) => {
     }
 });
 
-// --- ENDPOINTS PLANILLA_BORRADOR ---
 app.get('/api/planilla-borrador', async (req, res) => {
     try {
         const pool = await poolPlanilla;
@@ -612,7 +677,6 @@ app.delete('/api/planilla-borrador', async (req, res) => {
         res.status(500).json({ error: 'Error al limpiar borrador' });
     }
 });
-// --- END ENDPOINTS PLANILLA_BORRADOR ---
 
 app.put('/api/empleados/:id/reactivar', async (req, res) => {
     try {
@@ -640,7 +704,7 @@ app.put('/api/empleados/:id/reactivar', async (req, res) => {
         request.input('descAfpMin', mssql.Bit, data.calculoAfpMinimo ? 1 : 0);
         request.input('jorLab', mssql.VarChar(100), data.horarioTrabajo || null);
         request.input('fechaIng', mssql.Date, data.fechaInicio ? new Date(data.fechaInicio) : null);
-        request.input('fechaFin', mssql.Date, null); // Always clear end of contract when rehiring
+        request.input('fechaFin', mssql.Date, null);
         request.input('correo', mssql.VarChar(150), data.email || null);
         request.input('banco', mssql.VarChar(100), data.banco || null);
         request.input('tipoCta', mssql.VarChar(50), data.tipoCuenta || null);
@@ -673,14 +737,49 @@ app.put('/api/empleados/:id/reactivar', async (req, res) => {
 
 app.delete('/api/empleados/:id', async (req, res) => {
     try {
+        const { id } = req.params;
+        const { motivo } = req.body;
         const pool = await poolPlanilla;
+
+        const empRes = await pool.request()
+            .input('id', mssql.Int, id)
+            .query('SELECT * FROM EMPLOYEES WHERE ID_EMPLOYEE = @id');
+
+        if (empRes.recordset.length === 0) {
+            return res.status(404).json({ error: 'Empleado no encontrado' });
+        }
+
+        const emp = empRes.recordset[0];
+
         await pool.request()
-            .input('id', mssql.Int, req.params.id)
+            .input('idOriginal', mssql.Int, id)
+            .input('nombre', mssql.NVarChar, emp.NOMBRE)
+            .input('apellido', mssql.NVarChar, emp.APELLIDOS)
+            .input('dni', mssql.NVarChar, emp.DNI)
+            .input('sueldo', mssql.Decimal(18, 2), emp.SUELDO_BASE)
+            .input('depto', mssql.NVarChar, emp.DEPARTAMENTO)
+            .input('cargo', mssql.NVarChar, emp.CARGO)
+            .input('tipo', mssql.NVarChar, emp.TIPO_TRABAJADOR)
+            .input('telefono', mssql.NVarChar, emp.TELEFONO)
+            .input('correo', mssql.NVarChar, emp.CORREO)
+            .input('motivo', mssql.NVarChar, motivo || 'Sin motivo especificado')
+            .query(`
+                INSERT INTO EMPLEADOS_ARCHIVADOS (
+                    EmpleadoOriginalId, Nombre, Apellido, Sueldo, Departamento, 
+                    Cargo, Tipo, Telefono, Motivo, FechaArchivado, CreatedAt
+                ) VALUES (
+                    @idOriginal, @nombre, @apellido, @sueldo, @depto, 
+                    @cargo, @tipo, @telefono, @motivo, GETDATE(), GETDATE()
+                )
+            `);
+        await pool.request()
+            .input('id', mssql.Int, id)
             .query("UPDATE EMPLOYEES SET ACTIVO = 0, FECHA_FIN_CONTRATO = GETDATE() WHERE ID_EMPLOYEE = @id");
-        res.json({ message: 'Empleado dado de baja exitosamente' });
+
+        res.json({ message: 'Empleado dado de baja y archivado exitosamente' });
     } catch (error) {
-        console.error('Error al dar de baja empleado en SQL:', error);
-        res.status(500).json({ error: 'Error al dar de baja empleado' });
+        console.error('Error al dar de baja y archivar empleado:', error);
+        res.status(500).json({ error: 'Error al procesar la baja del empleado', details: error.message });
     }
 });
 
@@ -1012,7 +1111,7 @@ app.post('/api/historial-pago', async (req, res) => {
                 insertRequest.input('adic', mssql.Decimal(18, 2), emp.descuentoAdicional);
                 insertRequest.input('totalDesc', mssql.Decimal(18, 2), emp.totalDescuento);
                 insertRequest.input('neto', mssql.Decimal(18, 2), emp.remuneracionNeta);
-                insertRequest.input('obs', mssql.NVarChar, emp.observaciones || null); // Changed from '' to null
+                insertRequest.input('obs', mssql.NVarChar, emp.observaciones || null);
                 insertRequest.input('periodo', mssql.NVarChar, periodo);
 
                 await insertRequest.query(`
@@ -1089,7 +1188,7 @@ app.get('/api/historial-pago/:periodo', async (req, res) => {
             empleados: docs.map(d => ({
                 empleadoId: d.Id,
                 nombre: d.Nombres,
-                apellidos: d.Apellidos || null, // Changed from '' to null
+                apellidos: d.Apellidos || null,
                 cargo: d.Cargo,
                 tipoTrabajador: d.Tipo,
                 sueldo: d.SueldoBase,
@@ -1102,7 +1201,7 @@ app.get('/api/historial-pago/:periodo', async (req, res) => {
                 descuentoAdicional: d.DescAdic,
                 totalDescuento: d.TotalDesc,
                 remuneracionNeta: d.NetoAPagar,
-                observaciones: d.Observaciones || null // Changed from '' to null
+                observaciones: d.Observaciones || null
             }))
         };
 
@@ -1120,84 +1219,227 @@ const WHMCS_API_URL = getSecret('whmcs_api_url', 'http://cliente.hwperu.com/incl
 const WHMCS_IDENTIFIER = getSecret('whmcs_identifier', 'Pb55YUTQVfK73P5U1xLu9yF0jbKvZTeq');
 const WHMCS_SECRET = getSecret('whmcs_secret', 'hu8U5fQ80TVCHMW4ZBwBR7mYi1Iuw7HR');
 
-async function syncWhmcsInvoices() {
-    console.log('Starting WHMCS sync...');
+const CUENTAS_DESTINO = {
+    '2003002697856': 'INTERBANK',
+    '1939839336030': 'BCP'
+};
+
+function identifyBankFromText(text) {
+    const banks = identifyAllBanks(text);
+    return banks.length > 0 ? banks[0] : null;
+}
+
+function identifyAllBanks(text) {
+    if (!text) return [];
+    const t = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const identified = [];
+
+    if (t.includes('yape')) identified.push('Yape');
+    if (t.includes('plin')) identified.push('Plin');
+
+    if (t.includes('bcp') || t.includes('credito') || t.includes('1939839336030') || t.includes('viabcp')) identified.push('BCP');
+    if (t.includes('interbank') || t.includes('ibk') || t.includes('ibnk') || t.includes('2003002697856')) identified.push('INTERBANK');
+    if (t.includes('bbva') || t.includes('continental') || t.includes('0011')) identified.push('BBVA');
+    if (t.includes('izipay') || t.includes('pos')) identified.push('Izipay');
+    if (t.includes('paypal')) identified.push('PayPal');
+    if (t.includes('caja') || t.includes('efectivo')) identified.push('Efectivo');
+
+    return [...new Set(identified)];
+}
+
+async function getWhmcsInvoiceDetails(invoiceId) {
+    const params = new URLSearchParams();
+    params.append('identifier', WHMCS_IDENTIFIER);
+    params.append('secret', WHMCS_SECRET);
+    params.append('action', 'GetInvoice');
+    params.append('invoiceid', invoiceId.toString());
+    params.append('responsetype', 'json');
+
+    try {
+        const res = await axios.post(WHMCS_API_URL, params, {
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        });
+        return res.data;
+    } catch (err) {
+        console.error(`Error fetching invoice ${invoiceId}:`, err.message);
+        return null;
+    }
+}
+
+function mapBankToDebitAccount(bank) {
+    if (!bank) return '1031';
+    const b = bank.toUpperCase();
+    if (b === 'BCP' || b === 'INTERBANK' || b === 'BBVA') return '1041';
+    if (b === 'IZIPAY' || b === 'PAYPAL') return '1031';
+    if (b === 'CAJA VIRTUAL') return '1011';
+    return '1031';
+}
+
+export async function syncWhmcsInvoices() {
+    console.log('Starting WHMCS Absolute Sync (Transaction-First/100% Accuracy)...');
     const now = new Date();
-    const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
 
-    let allInvoices = [];
-    let limitstart = 0;
-    const limitnum = 100;
-    let totalresults = 0;
-    let stopEarly = false;
+    try {
+        const targetMonthStr = `${currentYear}-${(currentMonth + 1).toString().padStart(2, '0')}`;
+        console.log(`[WHMCS Sync] Analyzing transactions for ${targetMonthStr}...`);
 
-    do {
-        const params = new URLSearchParams();
-        params.append('identifier', WHMCS_IDENTIFIER);
-        params.append('secret', WHMCS_SECRET);
-        params.append('action', 'GetInvoices');
-        params.append('responsetype', 'json');
-        params.append('limitstart', limitstart.toString());
-        params.append('limitnum', limitnum.toString());
-        params.append('orderby', 'date');
-        params.append('order', 'desc');
+        // --- FASE 1: Obtener TODAS las transacciones del mes ---
+        const txParams = new URLSearchParams();
+        txParams.append('identifier', WHMCS_IDENTIFIER);
+        txParams.append('secret', WHMCS_SECRET);
+        txParams.append('action', 'GetTransactions');
+        txParams.append('limitnum', '2000'); // Suficiente para capturar el mes
+        txParams.append('responsetype', 'json');
 
-        const response = await axios.post(WHMCS_API_URL, params, {
+        const txRes = await axios.post(WHMCS_API_URL, txParams, {
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
         });
 
-        const data = response.data;
-        if (data.result !== 'success') throw new Error(`WHMCS Sync Error: ${data.message}`);
-
-        totalresults = parseInt(data.totalresults) || 0;
-        const invoices = data.invoices?.invoice || [];
-
-        for (const inv of invoices) {
-            const d = new Date(inv.date);
-            if (d.getFullYear() < currentYear || (d.getFullYear() === currentYear && d.getMonth() < currentMonth)) {
-                stopEarly = true;
-                break;
-            }
-            allInvoices.push(inv);
+        if (!txRes.data.transactions || !txRes.data.transactions.transaction) {
+            console.warn('[WHMCS Sync] No transactions found in the response.');
+            return;
         }
 
-        if (stopEarly) break;
-        limitstart += limitnum;
-    } while (limitstart < totalresults);
-    console.log(`Procesando ${allInvoices.length} facturas para insertar/actualizar en la base de datos FINANCE...`);
-    const pool = await poolFinance;
-    for (const inv of allInvoices) {
-        const request = pool.request();
-        request.input('whmcsId', mssql.Int, inv.id);
-        request.input('fecha', mssql.Date, inv.date);
-        request.input('cliente', mssql.NVarChar(255), inv.companyname || `${inv.firstname} ${inv.lastname}`);
-        request.input('numFactura', mssql.NVarChar(50), inv.invoicenum);
-        request.input('total', mssql.Decimal(18, 2), parseFloat(inv.total));
-        request.input('estado', mssql.NVarChar(50), inv.status);
-        request.input('pagado', mssql.Decimal(18, 2), parseFloat(inv.amountpaid || 0));
-        request.input('moneda', mssql.NVarChar(10), inv.currencycode);
-        request.input('now', mssql.DateTime, new Date());
+        const allTrans = Array.isArray(txRes.data.transactions.transaction) ? txRes.data.transactions.transaction : [txRes.data.transactions.transaction];
+        const marchTrans = allTrans.filter(t => t.date.startsWith(targetMonthStr));
 
-        await request.query(`
-            IF EXISTS (SELECT 1 FROM FINANCE_INVOICES WHERE WHMCS_InvoiceID = @whmcsId)
-            BEGIN
-                UPDATE FINANCE_INVOICES SET 
-                    EstadoWHMCS = @estado, 
-                    Pagado = @pagado, 
-                    UpdatedAt = @now
-                WHERE WHMCS_InvoiceID = @whmcsId
-            END
-            ELSE
-            BEGIN
-                INSERT INTO FINANCE_INVOICES (WHMCS_InvoiceID, Fecha, ClienteConcepto, NumFactura, MontoBruto, EstadoWHMCS, Pagado, Moneda, CreatedAt, UpdatedAt)
-                VALUES (@whmcsId, @fecha, @cliente, @numFactura, @total, @estado, @pagado, @moneda, @now, @now)
-            END
-        `);
+        if (marchTrans.length === 0) {
+            console.log(`[WHMCS Sync] No transactions found for ${targetMonthStr}.`);
+            return;
+        }
+
+        // Calcular total exacto (PEN)
+        const totalGrossPEN = marchTrans.reduce((sum, t) => {
+            const amt = parseFloat(t.amountin || 0);
+            const r = parseFloat(t.rate || 1);
+            return sum + (r > 0 ? (amt / r) : amt);
+        }, 0);
+
+        console.log(`[WHMCS Sync] WHMCS Total Match: S/ ${totalGrossPEN.toFixed(2)} (${marchTrans.length} transacciones)`);
+
+        // Identificar facturas únicas a sincronizar basándonos en las transacciones de este mes
+        const invoiceIds = [...new Set(marchTrans.map(t => parseInt(t.invoiceid)).filter(id => id > 0))];
+        console.log(`[WHMCS Sync] Syncing ${invoiceIds.length} unique invoices involved in these transactions.`);
+
+        const pool = await poolFinance;
+        let syncedCount = 0;
+
+        const chunkSize = 10;
+        for (let i = 0; i < invoiceIds.length; i += chunkSize) {
+            const chunk = invoiceIds.slice(i, i + chunkSize);
+            await Promise.all(chunk.map(async (invId) => {
+                try {
+                    // Obtener detalles completos de la factura
+                    const detRes = await getWhmcsInvoiceDetails(invId);
+                    if (!detRes || detRes.result !== 'success') return;
+
+                    const invBase = detRes;
+                    const invoiceTxsInPeriod = marchTrans.filter(t => parseInt(t.invoiceid) === invId);
+
+                    // Monto bruto para esta factura en este periodo
+                    const totalMonthPENForInvoice = invoiceTxsInPeriod.reduce((sum, t) => {
+                        const amt = parseFloat(t.amountin || 0);
+                        const r = parseFloat(t.rate || 1);
+                        return sum + (r > 0 ? (amt / r) : amt);
+                    }, 0);
+
+                    const fullName = `${invBase.firstname || ''} ${invBase.lastname || ''}`.trim();
+                    const companyDisp = (invBase.companyname && invBase.companyname.trim()) ? invBase.companyname.trim() : null;
+                    const clienteName = fullName || companyDisp || 'Cliente WHMCS';
+
+                    const invItems = invBase.items?.item || [];
+                    let firstItem = invItems[0]?.description || 'Servicio WHMCS';
+                    const techKeywords = ['IP Adicionales:', 'Sistema Operativo:', 'Pre-Instalación:', 'Ubicación:', 'Panel de Control:'];
+                    for (const kw of techKeywords) {
+                        if (firstItem.includes(kw)) firstItem = firstItem.split(kw)[0].trim();
+                    }
+                    firstItem = firstItem.split('\n')[0].trim();
+
+                    let cat = 'Otros';
+                    const allItemsText = invItems.map(i => (i.description || '').toLowerCase()).join(' ');
+                    if (allItemsText.includes('hosting') && allItemsText.includes('dom')) cat = 'Hosting y Dominio';
+                    else if (allItemsText.includes('hosting')) cat = 'Hosting';
+                    else if (allItemsText.includes('dom')) cat = 'Dominio';
+
+                    let cleanConcept = `${clienteName}\n${firstItem} (${cat})`;
+                    cleanConcept = cleanConcept.replace(/\(\d{2}\/\d{2}\/\d{4} - \d{2}\/\d{2}\/\d{4}\)/g, '').replace(/\s+/g, ' ').trim();
+                    const clienteConcepto = cleanConcept.substring(0, 255);
+
+                    // Reconstruir origen/destino bancario desde la última transacción
+                    let bankSource = '--';
+                    let bankDestination = '--';
+                    if (invoiceTxsInPeriod.length > 0) {
+                        const lastT = invoiceTxsInPeriod[invoiceTxsInPeriod.length - 1];
+                        const banksInId = identifyAllBanks(lastT.transid);
+                        if (banksInId[0]) bankSource = banksInId[0];
+                        if (banksInId.length > 1) bankDestination = banksInId[1];
+                        else {
+                            bankDestination = identifyBankFromText(lastT.description) || identifyBankFromText(invBase.paymentmethod) || bankSource;
+                        }
+                    }
+
+                    const codigoContable = mapBankToDebitAccount(bankDestination);
+                    const pm = (invBase.paymentmethod || '').toLowerCase();
+                    let tipoMov = 'Transferencia';
+                    if (pm.includes('izipay')) tipoMov = 'Izipay';
+                    else if (pm.includes('yape')) tipoMov = 'Yape';
+                    else if (pm.includes('plin')) tipoMov = 'Plin';
+                    else if (pm.includes('tarjeta') || pm.includes('paypal') || pm.includes('stripe')) tipoMov = 'Tarjeta';
+                    else if (pm.includes('efectivo')) tipoMov = 'Efectivo';
+
+                    const request = pool.request();
+                    request.input('whmcsId', mssql.Int, invId);
+                    request.input('fecha', mssql.Date, invBase.date);
+                    request.input('cliente', mssql.NVarChar(255), clienteConcepto);
+                    request.input('numFactura', mssql.NVarChar(50), invBase.invoicenum);
+                    request.input('total', mssql.Decimal(18, 2), totalMonthPENForInvoice);
+                    request.input('estado', mssql.NVarChar(50), invBase.status);
+                    request.input('pagado', mssql.Decimal(18, 2), totalMonthPENForInvoice);
+                    request.input('moneda', mssql.NVarChar(10), invBase.currencycode || 'PEN');
+                    request.input('banco', mssql.NVarChar(50), bankSource);
+                    request.input('cuentaDebito', mssql.NVarChar(100), bankDestination);
+                    request.input('tipoMovimiento', mssql.NVarChar(50), tipoMov);
+                    request.input('codContable', mssql.NVarChar(50), codigoContable);
+                    request.input('now', mssql.DateTime, new Date());
+
+                    await request.query(`
+                        IF EXISTS (SELECT 1 FROM FINANCE_INVOICES WHERE WHMCS_InvoiceID = @whmcsId)
+                        BEGIN
+                            UPDATE FINANCE_INVOICES SET 
+                                ClienteConcepto = @cliente,
+                                EstadoWHMCS = @estado, 
+                                Pagado = @pagado, 
+                                MontoBruto = @total,
+                                DepositoSalida = @pagado,
+                                EstadoLocal = 'Conciliado',
+                                Banco = @banco,
+                                CuentaDebito = @cuentaDebito,
+                                UpdatedAt = @now
+                            WHERE WHMCS_InvoiceID = @whmcsId
+                        END
+                        ELSE
+                        BEGIN
+                            INSERT INTO FINANCE_INVOICES (WHMCS_InvoiceID, Fecha, ClienteConcepto, NumFactura, MontoBruto, EstadoWHMCS, Pagado, DepositoSalida, Moneda, EstadoLocal, Banco, CuentaDebito, TipoMovimiento, CodigoContable, CreatedAt, UpdatedAt)
+                            VALUES (@whmcsId, @fecha, @cliente, @numFactura, @total, @estado, @pagado, @pagado, @moneda, 'Conciliado', @banco, @cuentaDebito, @tipoMovimiento, @codContable, @now, @now)
+                        END
+                    `);
+                    syncedCount++;
+                } catch (err) {
+                    console.error(`Error syncing invoice ${invId}:`, err.message);
+                }
+            }));
+        }
+
+        // Cache final
+        cachedThisMonthPaid = totalGrossPEN;
+        cachedThisMonthTotalGross = totalGrossPEN;
+        lastSyncTime = Date.now();
+        console.log(`[WHMCS Sync] Sync Complete. Final Cached Gross: S/ ${cachedThisMonthTotalGross.toFixed(2)} (${syncedCount} facturas listadas)`);
+
+    } catch (error) {
     }
-
-    lastSyncTime = Date.now();
-    console.log(`Sync complete. Processed ${allInvoices.length} current month invoices.`);
 }
 
 app.get('/api/whmcs/invoices', async (req, res) => {
@@ -1205,21 +1447,44 @@ app.get('/api/whmcs/invoices', async (req, res) => {
         const now = new Date();
         const forceSync = req.query.sync === 'true';
 
-        if (forceSync || !lastSyncTime || (Date.now() - lastSyncTime > SYNC_COOLDOWN)) {
+        const currentMonth = parseInt(req.query.mes) || (now.getMonth() + 1);
+        const currentYear = parseInt(req.query.anio) || now.getFullYear();
+
+        if (forceSync) {
             await syncWhmcsInvoices();
+        } else if (!lastSyncTime || (Date.now() - lastSyncTime > SYNC_COOLDOWN)) {
+            console.log('[WHMCS] Starting background sync...');
+            syncWhmcsInvoices().catch(err => console.error('Background sync failed:', err));
         }
 
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 25;
+        const offset = (page - 1) * limit;
+
         const pool = await poolFinance;
-        const currentMonth = now.getMonth() + 1;
-        const currentYear = now.getFullYear();
+
+        const countResult = await pool.request()
+            .input('month', mssql.Int, currentMonth)
+            .input('year', mssql.Int, currentYear)
+            .query(`
+                SELECT COUNT(*) as total FROM FINANCE_INVOICES 
+                WHERE MONTH(Fecha) = @month AND YEAR(Fecha) = @year
+                AND EstadoLocal = 'Conciliado'
+            `);
+
+        const totalRecords = countResult.recordset[0].total;
 
         const result = await pool.request()
             .input('month', mssql.Int, currentMonth)
             .input('year', mssql.Int, currentYear)
+            .input('offset', mssql.Int, offset)
+            .input('limit', mssql.Int, limit)
             .query(`
                 SELECT * FROM FINANCE_INVOICES 
                 WHERE MONTH(Fecha) = @month AND YEAR(Fecha) = @year
+                AND EstadoLocal = 'Conciliado'
                 ORDER BY Fecha DESC
+                OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
             `);
 
         const invoices = result.recordset.map(inv => ({
@@ -1227,7 +1492,7 @@ app.get('/api/whmcs/invoices', async (req, res) => {
             localId: inv.ID,
             fecha: inv.Fecha,
             clienteConcepto: inv.ClienteConcepto,
-            numFactura: inv.NumFactura,
+            numFactura: inv.NumFactura || inv.WHMCS_InvoiceID,
             montoBruto: inv.MontoBruto,
             estado: inv.EstadoWHMCS,
             pagado: inv.Pagado,
@@ -1239,21 +1504,132 @@ app.get('/api/whmcs/invoices', async (req, res) => {
             cuentaDebito: inv.CuentaDebito,
             cuentaCredito: inv.CuentaCredito,
             codigoContable: inv.CodigoContable,
-            estadoLocal: inv.EstadoLocal
+            estadoLocal: inv.EstadoLocal || 'Pendiente'
         }));
 
-        const thisMonthPaid = invoices.reduce((sum, inv) => sum + (inv.pagado || 0), 0);
-        const thisMonthTotal = invoices.reduce((sum, inv) => sum + (inv.montoBruto || 0), 0);
+        const penInvoices = invoices.filter(inv => {
+            const m = (inv.moneda || '').toString().toUpperCase();
+            return m === 'PEN' || m === '1' || m === '' || m === 'SOLES' || m.includes('S/');
+        });
+        const thisMonthPaid = cachedThisMonthPaid;
+        const thisMonthTotalGross = cachedThisMonthTotalGross > 0
+            ? cachedThisMonthTotalGross
+            : penInvoices.reduce((sum, inv) => sum + (Number(inv.montoBruto) || 0), 0);
+
+        const thisMonthUnpaid = penInvoices.filter(inv => {
+            const st = (inv.estado || '').toLowerCase();
+            return st.includes('unpaid') || st.includes('pendien');
+        }).reduce((sum, inv) => sum + (Number(inv.montoBruto) || 0), 0);
+
+        console.log(`[Finance Debug] This Month Paid (caché datepaid): ${thisMonthPaid}`);
+        console.log(`[Finance Debug] This Month Total Gross: ${thisMonthTotalGross}`);
 
         res.json({
-            totalresults: invoices.length,
+            totalresults: totalRecords,
+            totalPages: Math.ceil(totalRecords / limit),
+            currentPage: page,
             thisMonthPaid,
-            thisMonthTotal,
+            thisMonthTotal: thisMonthPaid,
+            thisMonthTotalGross,
+            thisMonthUnpaid,
             invoices: invoices
         });
     } catch (error) {
         console.error('Error fetching invoices:', error.message);
         res.status(500).json({ error: 'Error al obtener facturas' });
+    }
+});
+
+app.get('/api/whmcs/invoice/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        const params = new URLSearchParams();
+        params.append('identifier', WHMCS_IDENTIFIER);
+        params.append('secret', WHMCS_SECRET);
+        params.append('action', 'GetInvoice');
+        params.append('invoiceid', id);
+        params.append('responsetype', 'json');
+
+        const response = await axios.post(WHMCS_API_URL, params, {
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        });
+
+        if (response.data.result === 'success') {
+            const inv = response.data;
+            const items = inv.items?.item || [];
+            res.json({
+                success: true,
+                invoice: {
+                    id: inv.invoiceid,
+                    invoicenum: inv.invoicenum || inv.invoiceid,
+                    date: inv.date,
+                    duedate: inv.duedate,
+                    datepaid: inv.datepaid,
+                    status: inv.status,
+                    paymentmethod: inv.paymentmethod,
+                    subtotal: parseFloat(inv.subtotal || 0),
+                    tax: parseFloat(inv.tax || 0),
+                    tax2: parseFloat(inv.tax2 || 0),
+                    total: parseFloat(inv.total || 0),
+                    credit: parseFloat(inv.credit || 0),
+                    balance: parseFloat(inv.balance || 0),
+                    notes: inv.notes || '',
+                    client: {
+                        name: `${inv.firstname || ''} ${inv.lastname || ''}`.trim(),
+                        company: inv.companyname || '',
+                        email: inv.email || ''
+                    },
+                    items: items.map(it => ({
+                        id: it.id,
+                        type: it.type,
+                        description: it.description,
+                        amount: parseFloat(it.amount || 0),
+                        taxed: it.taxed
+                    }))
+                }
+            });
+        } else {
+            res.status(404).json({ success: false, error: 'Factura no encontrada en WHMCS' });
+        }
+    } catch (error) {
+        console.error('Error fetching invoice detail:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
+app.get('/api/finance/invoices/:id/pdf-info', async (req, res) => {
+    const { id } = req.params;
+    try {
+        const params = new URLSearchParams();
+        params.append('identifier', WHMCS_IDENTIFIER);
+        params.append('secret', WHMCS_SECRET);
+        params.append('action', 'GetInvoice');
+        params.append('invoiceid', id);
+        params.append('responsetype', 'json');
+
+        const response = await axios.post(WHMCS_API_URL, params, {
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        });
+
+        if (response.data.result === 'success') {
+            const inv = response.data;
+            let detectedBank = identifyBankFromText(inv.paymentmethod) || identifyBankFromText(inv.notes);
+
+            if (!detectedBank && inv.transactions?.transaction) {
+                const txs = Array.isArray(inv.transactions.transaction) ? inv.transactions.transaction : [inv.transactions.transaction];
+                for (const tx of txs) {
+                    detectedBank = identifyBankFromText(tx.description) || identifyBankFromText(tx.transid);
+                    if (detectedBank) break;
+                }
+            }
+
+            res.json({ success: true, data: { banco: detectedBank } });
+        } else {
+            res.status(404).json({ success: false, error: 'Invoice not found' });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
@@ -1363,6 +1739,232 @@ app.get('/api/finance/transaction-status', async (req, res) => {
 });
 
 
+app.get('/api/finance/egresos', async (req, res) => {
+    try {
+        const pool = await poolFinance;
+        const mes = parseInt(req.query.mes) || (new Date().getMonth() + 1);
+        const anio = parseInt(req.query.anio) || new Date().getFullYear();
+
+        const result = await pool.request()
+            .input('month', mssql.Int, mes)
+            .input('year', mssql.Int, anio)
+            .query(`
+                SELECT * FROM FINANCE_EGRESOS 
+                WHERE MONTH(Fecha) = @month AND YEAR(Fecha) = @year
+                ORDER BY Fecha DESC, CreatedAt DESC
+            `);
+
+        console.log(`[EGRESOS DEBUG] Mes: ${mes}, Anio: ${anio} -> Filas encontradas: ${result.recordset.length}`);
+
+        const egresos = result.recordset.map(e => ({
+            id: e.ID,
+            fecha: e.Fecha,
+            monto: e.Monto,
+            banco: e.Banco,
+            tipoEgreso: e.TipoEgreso,
+            comercio: e.Comercio,
+            categoria: e.Categoria,
+            referencia: e.Referencia,
+            origen: e.Origen,
+            observacion: e.Observacion
+        }));
+
+        const totalMes = egresos.reduce((sum, e) => sum + (Number(e.monto) || 0), 0);
+
+        res.json({
+            total: egresos.length,
+            totalMonto: totalMes,
+            egresos
+        });
+    } catch (error) {
+        console.error('Error fetching egresos:', error);
+        res.status(500).json({ error: 'Error al obtener egresos' });
+    }
+});
+
+app.post('/api/finance/egresos', async (req, res) => {
+    try {
+        const data = req.body;
+        const pool = await poolFinance;
+        const request = pool.request();
+
+        request.input('fecha', mssql.Date, data.fecha ? new Date(data.fecha) : new Date());
+        request.input('monto', mssql.Decimal(18, 2), data.monto || 0);
+        request.input('banco', mssql.NVarChar(100), data.banco || '');
+        request.input('tipo', mssql.NVarChar(100), data.tipoEgreso || 'MANUAL');
+        request.input('comercio', mssql.NVarChar(255), data.comercio || '');
+        request.input('categoria', mssql.NVarChar(100), data.categoria || '');
+        request.input('ref', mssql.NVarChar(255), data.referencia || '');
+        request.input('origen', mssql.NVarChar(50), data.origen || 'MANUAL');
+        request.input('obs', mssql.NVarChar(500), data.observacion || '');
+
+        await request.query(`
+            INSERT INTO FINANCE_EGRESOS (Fecha, Monto, Banco, TipoEgreso, Comercio, Categoria, Referencia, Origen, Observacion, CreatedAt, UpdatedAt)
+            VALUES (@fecha, @monto, @banco, @tipo, @comercio, @categoria, @ref, @origen, @obs, GETDATE(), GETDATE())
+        `);
+
+        res.status(201).json({ success: true, message: 'Egreso registrado correctamente' });
+    } catch (error) {
+        console.error('Error creating egreso:', error);
+        res.status(500).json({ error: 'Error al registrar egreso' });
+    }
+});
+
+app.delete('/api/finance/egresos/:id', async (req, res) => {
+    try {
+        const pool = await poolFinance;
+        await pool.request()
+            .input('id', mssql.Int, req.params.id)
+            .query('DELETE FROM FINANCE_EGRESOS WHERE ID = @id');
+        res.json({ success: true, message: 'Egreso eliminado' });
+    } catch (error) {
+        console.error('Error deleting egreso:', error);
+        res.status(500).json({ error: 'Error al eliminar egreso' });
+    }
+});
+
+
+app.get('/api/vacaciones', async (req, res) => {
+    try {
+        const pool = await poolPlanilla;
+        const employeeId = req.query.employeeId;
+
+        let query = `
+            SELECT v.*, e.NOMBRE, e.APELLIDOS 
+            FROM EMPLOYEE_VACATIONS v
+            JOIN EMPLOYEES e ON v.ID_EMPLOYEE = e.ID_EMPLOYEE
+        `;
+
+        const request = pool.request();
+        if (employeeId) {
+            query += ' WHERE v.ID_EMPLOYEE = @empId';
+            request.input('empId', mssql.Int, employeeId);
+        }
+
+        query += ' ORDER BY v.FECHA_INICIO DESC';
+
+        const result = await request.query(query);
+        res.json(result.recordset);
+    } catch (error) {
+        console.error('Error fetching vacations:', error);
+        res.status(500).json({ error: 'Error al obtener vacaciones' });
+    }
+});
+
+app.post('/api/vacaciones', async (req, res) => {
+    try {
+        const data = req.body;
+        const pool = await poolPlanilla;
+        const request = pool.request();
+
+        request.input('empId', mssql.Int, data.idEmployee);
+        request.input('start', mssql.Date, new Date(data.fechaInicio));
+        request.input('end', mssql.Date, new Date(data.fechaFin));
+        request.input('days', mssql.Int, data.diasUtiles);
+        request.input('status', mssql.VarChar(50), data.estado || 'PROGRAMADO');
+        request.input('obs', mssql.NVarChar(mssql.MAX), data.observaciones || '');
+
+        await request.query(`
+            INSERT INTO EMPLOYEE_VACATIONS (ID_EMPLOYEE, FECHA_INICIO, FECHA_FIN, DIAS_UTILES, ESTADO, OBSERVACIONES, CREATED_AT, UPDATED_AT)
+            VALUES (@empId, @start, @end, @days, @status, @obs, GETDATE(), GETDATE())
+        `);
+
+        res.status(201).json({ success: true, message: 'Vacaciones registradas correctamente' });
+    } catch (error) {
+        console.error('Error creating vacation:', error);
+        res.status(500).json({ error: 'Error al registrar vacaciones' });
+    }
+});
+
+app.put('/api/vacaciones/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const data = req.body;
+        const pool = await poolPlanilla;
+        const request = pool.request();
+
+        request.input('id', mssql.Int, id);
+        request.input('start', mssql.Date, new Date(data.fechaInicio));
+        request.input('end', mssql.Date, new Date(data.fechaFin));
+        request.input('days', mssql.Int, data.diasUtiles);
+        request.input('status', mssql.VarChar(50), data.estado);
+        request.input('obs', mssql.NVarChar(mssql.MAX), data.observaciones || '');
+
+        await request.query(`
+            UPDATE EMPLOYEE_VACATIONS 
+            SET FECHA_INICIO = @start,
+                FECHA_FIN = @end,
+                DIAS_UTILES = @days,
+                ESTADO = @status,
+                OBSERVACIONES = @obs,
+                UPDATED_AT = GETDATE()
+            WHERE ID = @id
+        `);
+
+        res.json({ success: true, message: 'Vacaciones actualizadas correctamente' });
+    } catch (error) {
+        console.error('Error updating vacation:', error);
+        res.status(500).json({ error: 'Error al actualizar vacaciones' });
+    }
+});
+
+app.delete('/api/vacaciones/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const pool = await poolPlanilla;
+        await pool.request()
+            .input('id', mssql.Int, id)
+            .query('DELETE FROM EMPLOYEE_VACATIONS WHERE ID = @id');
+        res.json({ success: true, message: 'Vacaciones eliminadas' });
+    } catch (error) {
+        console.error('Error deleting vacation:', error);
+        res.status(500).json({ error: 'Error al eliminar vacaciones' });
+    }
+});
+
+
+
+cron.schedule('*/30 * * * *', async () => {
+    try {
+        console.log('[CRON] Starting automatic Gmail synchronization...');
+        const portToUse = process.env.PORT || port;
+        const response = await axios.get(`http://localhost:${portToUse}/api/gmail/process?autoCreate=true&days=3`, {
+            timeout: 60000
+        });
+
+        if (response.data && response.data.success) {
+            console.log(`[CRON] Gmail sync complete. Scanned: ${response.data.totalScanned}, Saved: ${response.data.totalSaved}`);
+        } else {
+            console.error('[CRON] Gmail sync returned failure:', response.data);
+        }
+    } catch (error) {
+        console.error('[CRON] Critical error in Gmail sync job:', error.message);
+    }
+});
+
+app.get('*', (req, res) => {
+    if (!req.path.startsWith('/api/')) {
+        res.sendFile(path.join(distPath, 'index.html'), (err) => {
+            if (err) {
+                res.status(404).send("Frontend not found in 'public' folder. Check volumes.");
+            }
+        });
+    }
+});
+
+app.use((err, req, res, next) => {
+    console.error('SERVER_ERROR:', err);
+    res.status(500).json({ success: false, error: 'Error interno del servidor' });
+});
+
 app.listen(port, () => {
-    console.log(`Backend listening at http://localhost:${port}`);
+    console.log(`Server running at http://localhost:${port}`);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('UNHANDLED_REJECTION:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+    console.error('UNCAUGHT_EXCEPTION:', err);
 });

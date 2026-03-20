@@ -1,7 +1,7 @@
 import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { API_URL } from '../api-config';
+import { API_URL, getAuthHeaders } from '../api-config';
 
 interface Movement {
     _id?: string; // actually subdoc id usually, but here we might need parent emp id + subdoc id logic
@@ -50,7 +50,9 @@ export class MovimientosComponent {
     async loadData() {
         try {
             // Fetch Employees first (for name mapping)
-            const empResponse = await fetch(API_URL + '/api/empleados');
+            const empResponse = await fetch(API_URL + '/api/empleados', {
+                headers: getAuthHeaders()
+            });
             if (empResponse.ok) {
                 this.employees = await empResponse.json();
             }
@@ -65,10 +67,10 @@ export class MovimientosComponent {
 
             // Fetch all movements in parallel
             const [adelantosRes, prestamosRes, movilidadRes, viaticosRes] = await Promise.all([
-                fetch(API_URL + `/api/adelantos${query}`),
-                fetch(API_URL + `/api/prestamos${query}`),
-                fetch(API_URL + `/api/movilidad${query}`),
-                fetch(API_URL + `/api/viaticos${query}`)
+                fetch(API_URL + `/api/adelantos${query}`, { headers: getAuthHeaders() }),
+                fetch(API_URL + `/api/prestamos${query}`, { headers: getAuthHeaders() }),
+                fetch(API_URL + `/api/movilidad${query}`, { headers: getAuthHeaders() }),
+                fetch(API_URL + `/api/viaticos${query}`, { headers: getAuthHeaders() })
             ]);
 
             const adelantos = adelantosRes.ok ? await adelantosRes.json() : [];
@@ -236,7 +238,7 @@ export class MovimientosComponent {
         try {
             const response = await fetch(API_URL + `/api/${endpoint}`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: getAuthHeaders(),
                 body: JSON.stringify(payload)
             });
 
@@ -266,7 +268,8 @@ export class MovimientosComponent {
 
         try {
             const response = await fetch(API_URL + `/api/${endpoint}/${move._id}`, {
-                method: 'DELETE'
+                method: 'DELETE',
+                headers: getAuthHeaders()
             });
 
             if (response.ok) {

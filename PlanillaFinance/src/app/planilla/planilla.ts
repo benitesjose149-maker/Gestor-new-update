@@ -2,7 +2,9 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { API_URL } from '../api-config';
+import { API_URL, getAuthHeaders } from '../api-config';
+import * as ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
 
 interface PayrollEmployee {
     _id: string;
@@ -63,7 +65,9 @@ export class PlanillaComponent implements OnInit {
 
     async loadEmployees() {
         try {
-            const empResponse = await fetch(API_URL + '/api/planilla-borrador');
+            const empResponse = await fetch(API_URL + '/api/planilla-borrador', {
+                headers: getAuthHeaders()
+            });
             const data = await empResponse.json();
 
             // Calculate current month index (0-11)
@@ -101,14 +105,6 @@ export class PlanillaComponent implements OnInit {
                 };
             });
 
-            this.employees.forEach(emp => {
-                const entidad = (emp as any).entidadPrevisional || '';
-                if (entidad.includes('INTEGRA')) emp.regimenPensionario = 'AFP_INTEGRA';
-                if (entidad.includes('PRIMA')) emp.regimenPensionario = 'AFP_PRIMA';
-                if (entidad.includes('HABITAT')) emp.regimenPensionario = 'AFP_HABITAT';
-                if (entidad.includes('PROFUTURO')) emp.regimenPensionario = 'AFP_PROFUTURO';
-            });
-
             this.calculateAll();
         } catch (error) {
             console.error('Error loading employees:', error);
@@ -130,7 +126,7 @@ export class PlanillaComponent implements OnInit {
         try {
             await fetch(API_URL + `/api/planilla-borrador/${emp._id}`, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: getAuthHeaders(),
                 body: JSON.stringify(emp)
             });
         } catch (error) {
@@ -146,14 +142,17 @@ export class PlanillaComponent implements OnInit {
         // Handle Display for Entidad / Regimen
         if (emp.tipoTrabajador === 'RXH' || emp.tipoTrabajador === 'HONORARIOS') {
             emp.entidadDisplay = 'HONORARIOS';
-
-            // Force values to 0 for RXH
+            // Force values to 0 for RXH Asignacion Familiar only
             emp.montoAsignacionFamiliar = 0;
-            emp.afpPorcentaje = 0;
-            emp.descuentoAfp = 0;
         } else {
-            emp.entidadDisplay = emp.regimenPensionario?.replace(/_/g, ' ').replace('AFP', 'AFP ');
-            if (emp.regimenPensionario === 'SNP') emp.entidadDisplay = 'ONP (SNP)';
+            // Map DB values to display names
+            const regimen = (emp.regimenPensionario || '').toUpperCase();
+            if (regimen.includes('INTEGRA')) emp.entidadDisplay = 'AFP INTEGRA';
+            else if (regimen.includes('PRIMA')) emp.entidadDisplay = 'AFP PRIMA';
+            else if (regimen.includes('HABITAT')) emp.entidadDisplay = 'AFP HABITAT';
+            else if (regimen.includes('PROFUTURO')) emp.entidadDisplay = 'AFP PROFUTURO';
+            else if (regimen.includes('SNP') || regimen.includes('ONP')) emp.entidadDisplay = 'ONP (SNP)';
+            else emp.entidadDisplay = emp.regimenPensionario || '';
         }
 
         const sueldo = emp.sueldo || 0;
@@ -164,28 +163,28 @@ export class PlanillaComponent implements OnInit {
         emp.montoHorasExtras = hourlyRate * (emp.horasExtras || 0);
 
         const totalIngresos = sueldo + emp.montoHorasExtras + (emp.bonos || 0);
-        if (emp.tipoTrabajador === 'PLANILLA') {
-            let afpRate = 0;
-            switch (emp.regimenPensionario) {
-                case 'SNP': afpRate = 0.13; break;
-                case 'AFP_INTEGRA':
-                case 'AFP_PRIMA':
-                case 'AFP_HABITAT':
-                case 'AFP_PROFUTURO':
-                    afpRate = 0.1138;
-                    break;
-                default: afpRate = 0;
+
+        // Calculate Pension Discount (AFP / ONP) based on sueldo base
+        // HONORARIOS employees do NOT have pension discounts
+        let afpRate = 0;
+        if (emp.tipoTrabajador !== 'RXH' && emp.tipoTrabajador !== 'HONORARIOS') {
+            const regimenUpper = (emp.regimenPensionario || '').toUpperCase();
+            if (regimenUpper.includes('INTEGRA') || regimenUpper.includes('PRIMA') || regimenUpper.includes('HABITAT') || regimenUpper.includes('PROFUTURO')) {
+                afpRate = 0.1138; // AFP 11.38%
+            } else if (regimenUpper.includes('SNP') || regimenUpper.includes('ONP')) {
+                afpRate = 0.13; // ONP 13%
             }
-            emp.afpPorcentaje = afpRate * 100;
-
-            let baseAfp = totalIngresos;
-
-            if (emp.calculoAfpMinimo) {
-                baseAfp = 1130;
-            }
-
-            emp.descuentoAfp = parseFloat((baseAfp * afpRate).toFixed(2));
         }
+        emp.afpPorcentaje = afpRate * 100;
+
+        // AFP se calcula sobre el sueldo base
+        let baseAfp = sueldo;
+
+        if (emp.calculoAfpMinimo) {
+            baseAfp = 1130;
+        }
+
+        emp.descuentoAfp = parseFloat((baseAfp * afpRate).toFixed(2));
 
         // Absences deduction based on Base de Cálculo (Sueldo + Bono)
         const dayRate = emp.baseCalculo / 30;
@@ -205,8 +204,125 @@ export class PlanillaComponent implements OnInit {
         }
     }
 
-    exportToExcel() {
-        alert('Funcionalidad de exportar a Excel pendiente de implementación');
+    async exportToExcel() {
+        if (this.employees.length === 0) {
+            alert('No hay datos para exportar');
+            return;
+        }
+
+        const workbook = new ExcelJS.Workbook();
+        const worksheet = workbook.addWorksheet('Planilla');
+
+        const startRow = 4;
+        const startCol = 4;
+
+        // Header Styling (Emerald Green)
+        const headerRow = worksheet.getRow(startRow);
+        headerRow.height = 30;
+
+        // Mapping keys to column positions (starting from startCol)
+        const columns = [
+            { header: 'N°', width: 5 },
+            { header: 'Nombres y Apellidos', width: 35 },
+            { header: 'Cargo', width: 20 },
+            { header: 'Sueldo Base', width: 14 },
+            { header: 'Asig. Familiar', width: 14 },
+            { header: 'Bonos', width: 12 },
+            { header: 'Horas Extras', width: 14 },
+            { header: 'Base de Cálculo', width: 16 },
+            { header: 'Entidad Pensión', width: 20 },
+            { header: 'Desc. Pensión', width: 14 },
+            { header: 'Adelantos', width: 12 },
+            { header: 'Préstamos', width: 12 },
+            { header: 'Préstamo Cuota', width: 15 },
+            { header: 'Faltas (Monto)', width: 14 },
+            { header: 'Desc. Adicionales', width: 16 },
+            { header: 'Total Descuento', width: 16 },
+            { header: 'Neto a Pagar', width: 16 },
+            { header: 'Estado', width: 14 },
+            { header: 'Observaciones', width: 30 }
+        ];
+
+        columns.forEach((col, i) => {
+            const cell = headerRow.getCell(startCol + i);
+            cell.value = col.header;
+            worksheet.getColumn(startCol + i).width = col.width;
+
+            cell.fill = {
+                type: 'pattern',
+                pattern: 'solid',
+                fgColor: { argb: 'FF10B981' }
+            };
+            cell.font = {
+                name: 'Arial',
+                size: 11,
+                bold: true,
+                color: { argb: 'FFFFFFFF' }
+            };
+            cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            cell.border = {
+                top: { style: 'thin' },
+                left: { style: 'thin' },
+                bottom: { style: 'thin' },
+                right: { style: 'thin' }
+            };
+        });
+
+        // Add Data
+        this.employees.forEach((emp, index) => {
+            const rowIndex = startRow + 1 + index;
+            const dataRow = worksheet.getRow(rowIndex);
+
+            const values = [
+                index + 1,
+                `${emp.nombre} ${emp.apellidos}`,
+                emp.cargo,
+                emp.sueldo,
+                emp.montoAsignacionFamiliar,
+                emp.bonos,
+                emp.montoHorasExtras,
+                emp.baseCalculo + emp.montoHorasExtras,
+                emp.regimenPensionario === 'HONORARIOS' ? 'HONORARIOS' : emp.entidadDisplay || emp.regimenPensionario,
+                emp.descuentoAfp,
+                emp.adelanto,
+                emp.prestamo,
+                emp.cuotaDetalle || '',
+                emp.montoFaltas,
+                emp.descuentoAdicional,
+                emp.totalDescuento,
+                emp.remuneracionNeta,
+                emp.estado,
+                emp.observaciones
+            ];
+
+            values.forEach((val, i) => {
+                const cell = dataRow.getCell(startCol + i);
+                cell.value = val;
+                cell.alignment = { vertical: 'middle' };
+                cell.border = {
+                    top: { style: 'thin' },
+                    left: { style: 'thin' },
+                    bottom: { style: 'thin' },
+                    right: { style: 'thin' }
+                };
+
+                // Alignment for IDs and Status
+                if ([0, 12, 17].includes(i)) {
+                    cell.alignment.horizontal = 'center';
+                }
+
+                // Currency formatting
+                if ([3, 4, 5, 6, 7, 9, 10, 11, 13, 14, 15, 16].includes(i)) {
+                    cell.numFmt = '"S/" #,##0.00;[Red]-"S/" #,##0.00';
+                    cell.alignment.horizontal = 'right';
+                }
+            });
+        });
+
+        // Generate and download
+        const buffer = await workbook.xlsx.writeBuffer();
+        const fileName = `Planilla_${this.currentMonth.toUpperCase()}_${this.currentYear}.xlsx`;
+        saveAs(new Blob([buffer]), fileName);
     }
 
     async savePlanilla() {
@@ -251,7 +367,7 @@ export class PlanillaComponent implements OnInit {
         try {
             const response = await fetch(API_URL + '/api/historial-pago', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: getAuthHeaders(),
                 body: JSON.stringify(payload)
             });
 
@@ -271,7 +387,10 @@ export class PlanillaComponent implements OnInit {
         if (!confirm('¿Limpiar todos los campos editables? Los bonos FIJOS se mantendrán.')) return;
 
         try {
-            await fetch(API_URL + '/api/planilla-borrador', { method: 'DELETE' });
+            await fetch(API_URL + '/api/planilla-borrador', {
+                method: 'DELETE',
+                headers: getAuthHeaders()
+            });
         } catch (error) {
             console.error('Error clearing borrador:', error);
         }
@@ -478,5 +597,9 @@ export class PlanillaComponent implements OnInit {
 
     closeBonoModal() {
         this.showBonoModal = false;
+    }
+
+    get totalNetoAPagar(): number {
+        return this.employees.reduce((sum, emp) => sum + (emp.remuneracionNeta || 0), 0);
     }
 }

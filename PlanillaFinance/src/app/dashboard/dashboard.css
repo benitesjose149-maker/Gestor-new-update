@@ -3,12 +3,25 @@
     padding: 2rem;
 }
 
+@media (max-width: 768px) {
+    :host {
+        padding: 1rem;
+    }
+}
+
 /* Stats Grid */
 .stats-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     gap: 1.5rem;
     margin-bottom: 2rem;
+}
+
+@media (max-width: 480px) {
+    .stats-grid {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
 }
 
 .stat-card {

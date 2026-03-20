@@ -48,7 +48,7 @@
                         <div class="actions">
                             <button class="btn-action view" (click)="viewEmployee(employee)">Ver</button>
                             <button class="btn-action edit" (click)="editEmployee(employee)">Editar</button>
-                            <button class="btn-action delete" (click)="deleteEmployee(employee)">Dar de baja</button>
+                            <button class="btn-action delete" (click)="openLeaveModal(employee)">Dar de baja</button>
                         </div>
                     </td>
                 </tr>
@@ -60,7 +60,7 @@
     </div>
 </div>
 
-<div class="modal-overlay" *ngIf="showAddModal" (click)="closeAddModal()">
+<div class="modal-overlay" *ngIf="showAddModal">
     <div class="modal-content large-modal" (click)="$event.stopPropagation()">
         <div class="modal-header">
             <h2>{{ newEmployee._id ? 'Editar Empleado' : 'Registrar Nuevo Empleado' }}</h2>
@@ -74,11 +74,20 @@
                     <div class="form-row">
                         <div class="form-group search-group">
                             <label>DNI *</label>
-                            <div class="search-input-wrapper">
+                            <div class="dni-input-container">
                                 <input type="text" [(ngModel)]="newEmployee.dni" name="dni" placeholder="Ej: 72459812"
-                                    maxlength="8" required class="form-control">
-                                <button type="button" class="btn-search" (click)="searchDni()">
-                                    <i class="fas fa-search"></i> Buscar
+                                    maxlength="8" required class="form-control" inputmode="numeric"
+                                    [ngClass]="{'invalid-field': submitted && !newEmployee.dni}"
+                                    (keypress)="$event.charCode >= 48 && $event.charCode <= 57 ? true : $event.preventDefault()"
+                                    (paste)="onDniInput()" (input)="onDniInput()">
+                                <button type="button" class="btn-search" (click)="searchDni()"
+                                    [disabled]="searchingDni">
+                                    <span *ngIf="!searchingDni">
+                                        <i class="fas fa-search"></i> Buscar
+                                    </span>
+                                    <span *ngIf="searchingDni" class="searching-spinner">
+                                        <i class="fas fa-spinner fa-spin"></i>
+                                    </span>
                                 </button>
                             </div>
                         </div>
@@ -90,19 +99,22 @@
                     <div class="form-row">
                         <div class="form-group">
                             <label>Nombres *</label>
-                            <input type="text" [(ngModel)]="newEmployee.nombre" name="nombre" required
+                            <input type="text" [(ngModel)]="newEmployee.nombre" name="nombre" placeholder="Nombres"
+                                [ngClass]="{'invalid-field': submitted && !newEmployee.nombre}" required
                                 class="form-control">
                         </div>
                         <div class="form-group">
                             <label>Apellidos *</label>
-                            <input type="text" [(ngModel)]="newEmployee.apellidos" name="apellidos" required
-                                class="form-control">
+                            <input type="text" [(ngModel)]="newEmployee.apellidos" name="apellidos"
+                                [ngClass]="{'invalid-field': submitted && !newEmployee.apellidos}"
+                                placeholder="Apellidos" required class="form-control">
                         </div>
                     </div>
                     <div class="form-row three-col">
                         <div class="form-group">
-                            <label>Fecha Nacimiento</label>
+                            <label>Fecha Nacimiento *</label>
                             <input type="date" [(ngModel)]="newEmployee.fechaNacimiento" name="fechaNacimiento"
+                                [ngClass]="{'invalid-field': submitted && !newEmployee.fechaNacimiento}" required
                                 class="form-control">
                         </div>
                         <div class="form-group">
@@ -121,15 +133,18 @@
                     </div>
                     <div class="form-row">
                         <div class="form-group">
-                            <label>Dirección</label>
+                            <label>Dirección *</label>
                             <input type="text" [(ngModel)]="newEmployee.direccion" name="direccion"
-                                class="form-control">
+                                [ngClass]="{'invalid-field': submitted && !newEmployee.direccion}"
+                                placeholder="Dirección completa" required class="form-control">
                         </div>
                     </div>
                     <div class="form-row three-col">
                         <div class="form-group">
-                            <label>Teléfono</label>
-                            <input type="text" [(ngModel)]="newEmployee.telefono" name="telefono" class="form-control">
+                            <label>Teléfono *</label>
+                            <input type="text" [(ngModel)]="newEmployee.telefono" name="telefono"
+                                [ngClass]="{'invalid-field': submitted && !newEmployee.telefono}"
+                                placeholder="Ej: +51 987654321" required class="form-control">
                         </div>
                         <div class="form-group">
                             <label>Email Personal</label>
@@ -156,16 +171,18 @@
                         <div class="form-group">
                             <label>Cargo *</label>
                             <select [(ngModel)]="newEmployee.cargo" name="cargo" required class="form-control"
+                                [ngClass]="{'invalid-field': submitted && !newEmployee.cargo}"
                                 (change)="onCargoChange()">
-                                <option value="">Seleccione un Cargo</option>
+                                <option value="" disabled>Seleccione un Cargo</option>
                                 <option *ngFor="let cargo of cargos" [value]="cargo">{{cargo}}</option>
                             </select>
                         </div>
                         <div class="form-group">
                             <label>Departamento *</label>
                             <select [(ngModel)]="newEmployee.departamento" name="departamento" required
-                                class="form-control" [disabled]="!newEmployee.cargo">
-                                <option value="">Seleccione un Departamento</option>
+                                class="form-control" [disabled]="!newEmployee.cargo"
+                                [ngClass]="{'invalid-field': submitted && !newEmployee.departamento}">
+                                <option value="" disabled>Seleccione un Departamento</option>
                                 <option *ngFor="let dept of availableDepartamentos" [value]="dept">{{dept}}</option>
                             </select>
                         </div>
@@ -269,5 +286,41 @@
                 </div>
             </form>
         </div>
+    </div>
+</div>
+
+<!-- Leave Modal -->
+<div class="modal-overlay" *ngIf="showLeaveModal" (click)="closeLeaveModal()">
+    <div class="modal-content leave-modal" (click)="$event.stopPropagation()">
+        <header class="modal-header">
+            <h2>Dar de Baja Empleado</h2>
+            <button class="close-btn" (click)="closeLeaveModal()">&times;</button>
+        </header>
+
+        <div class="modal-body">
+            <p>¿Está seguro de dar de baja a <strong>{{selectedEmployeeForLeave?.nombre}}
+                    {{selectedEmployeeForLeave?.apellidos}}</strong>?</p>
+
+            <div class="form-group mt-4">
+                <label>Motivo de la baja *</label>
+                <textarea [(ngModel)]="leaveReason" name="leaveReason" class="form-control"
+                    placeholder="Ingrese el motivo detallado de la baja..." rows="10"></textarea>
+            </div>
+        </div>
+
+        <div class="modal-actions">
+            <button type="button" class="btn-cancel" (click)="closeLeaveModal()">Cancelar</button>
+            <button type="button" class="btn-save btn-danger" (click)="confirmLeave()">Confirmar Baja</button>
+        </div>
+    </div>
+</div>
+
+<!-- Notification Modal -->
+<div class="notif-overlay" *ngIf="showNotification" (click)="closeNotification()">
+    <div class="notif-box" [class.notif-success]="notificationSuccess" [class.notif-error]="!notificationSuccess"
+        (click)="$event.stopPropagation()">
+        <div class="notif-icon">{{notificationSuccess ? '✅' : '❌'}}</div>
+        <div class="notif-message">{{notificationMessage}}</div>
+        <button class="notif-close" (click)="closeNotification()">&times;</button>
     </div>
 </div>

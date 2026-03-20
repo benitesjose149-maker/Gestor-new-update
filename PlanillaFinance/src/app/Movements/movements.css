@@ -4,6 +4,23 @@
     min-height: 100vh;
 }
 
+@media (max-width: 768px) {
+    .movements-container {
+        padding: 1rem;
+    }
+
+    .page-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1rem;
+    }
+
+    .btn-add {
+        width: 100%;
+        justify-content: center;
+    }
+}
+
 .page-header {
     display: flex;
     justify-content: space-between;
@@ -46,6 +63,12 @@
     gap: 1rem;
 }
 
+@media (max-width: 640px) {
+    .filters-bar {
+        flex-direction: column;
+    }
+}
+
 .search-input {
     flex: 1;
     padding: 0.6rem 1rem;
@@ -58,12 +81,13 @@
     background-color: white;
     border-radius: 12px;
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-    overflow: hidden;
+    overflow-x: auto;
 }
 
 .movements-table {
     width: 100%;
     border-collapse: collapse;
+    min-width: 600px;
 }
 
 .movements-table th {

@@ -3,10 +3,8 @@
     justify-content: center;
     align-items: center;
     min-height: 100vh;
-    /* Changed to min-height for better mobile support */
     width: 100%;
     padding: 1rem;
-    /* Add padding to prevent edges touching on small screens */
 }
 
 .login-container {
@@ -15,21 +13,22 @@
 }
 
 .login-card {
-    background-color: #ffffff;
-    border-radius: 12px;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
     padding: 2.5rem;
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
     width: 100%;
-    /* Ensure card takes full width of container */
+}
+
+@media (max-width: 480px) {
+    .login-card {
+        padding: 1.5rem;
+    }
 }
 
 .login-header h2 {
     margin: 0;
     font-size: 1.75rem;
-    /* Slightly larger */
     font-weight: 700;
     color: #111827;
     text-align: center;
@@ -89,22 +88,18 @@
 input {
     width: 100%;
     padding: 0.875rem 1rem;
-    /* Slightly more padding */
     border: 1px solid #d1d5db;
     border-radius: 8px;
-    /* Slightly more rounded */
     font-size: 1rem;
     transition: all 0.2s ease;
     outline: none;
     background-color: #f9fafb;
-    /* Slight bg color for inputs */
 }
 
 input:focus {
     border-color: #2563eb;
     background-color: #fff;
     box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1);
-    /* Softer focus ring */
 }
 
 input.error {
@@ -156,12 +151,10 @@ input.error {
     width: 1rem;
     height: 1rem;
     border-radius: 4px;
-    /* Standard checkbox style override usually needs appearance: none */
     margin: 0;
     padding: 0;
     cursor: pointer;
     accent-color: #2563eb;
-    /* Modern browsers support this */
 }
 
 .forgot-password {
@@ -178,7 +171,6 @@ input.error {
 
 .submit-btn {
     width: 100%;
-    /* Full width button */
     background-color: #2563eb;
     color: white;
     border: none;
