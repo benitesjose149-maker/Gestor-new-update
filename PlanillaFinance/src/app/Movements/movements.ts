@@ -33,6 +33,9 @@ export class MovimientosComponent {
     filterType: string = '';
     selectedMonth: string = new Date().toISOString().slice(0, 7); // Default current month YYYY-MM
 
+    totalAdelantos: number = 0;
+    adelantosPorEmpleado: { nombre: string; total: number }[] = [];
+
     showModal: boolean = false;
     newMovement = {
         empleadoId: '',
@@ -177,6 +180,23 @@ export class MovimientosComponent {
 
             return matchesSearch && matchesType && matchesMonth;
         });
+        
+        this.calculateTotals();
+    }
+
+    calculateTotals() {
+        let adelantosFiltered = this.filteredMovements.filter(m => m.tipo === 'ADELANTO');
+        
+        this.totalAdelantos = adelantosFiltered.reduce((sum, m) => sum + m.monto, 0);
+
+        const map = new Map<string, number>();
+        adelantosFiltered.forEach(m => {
+            const current = map.get(m.empleadoNombre) || 0;
+            map.set(m.empleadoNombre, current + m.monto);
+        });
+
+        this.adelantosPorEmpleado = Array.from(map.entries()).map(([nombre, total]) => ({ nombre, total }));
+        this.adelantosPorEmpleado.sort((a, b) => b.total - a.total);
     }
 
     clearFilters() {

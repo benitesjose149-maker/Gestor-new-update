@@ -1,47 +1,54 @@
+import mssql from 'mssql';
+import { poolPlanilla } from '../config/dbSql.js';
+
 const MASTER_KEY = 'hw-peru-2025-seguro';
-const ALLOWED_IPS = [
-    '38.253.148.143', // Tu IP Pública
+export const ALLOWED_IPS = [
+    '38.253.148.143',
     '127.0.0.1',
     '::1',
     '::ffff:127.0.0.1',
-    '::ffff:10.0.0.2',
-    '10.0.0.2',
     '15.235.16.229',
     '::ffff:15.235.16.229'
 ];
 
-export const ipFilter = (req, res, next) => {
+export const ipFilter = async (req, res, next) => {
     try {
         if (req.method === 'OPTIONS') {
             return next();
         }
 
         const forwarded = req.headers['x-forwarded-for'];
-        let clientIp = req.ip || 
-                       (typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : forwarded) || 
-                       req.socket.remoteAddress;
+        let clientIp = req.ip ||
+            (typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : forwarded) ||
+            req.socket.remoteAddress;
 
-        // Limpiar prefijo IPv6 de IPv4 mapeada si es necesario
-        if (clientIp.startsWith('::ffff:')) {
-            const cleanIp = clientIp.replace('::ffff:', '');
-            // Si la IP limpia está en la lista o la original está en la lista
-            if (ALLOWED_IPS.includes(cleanIp) || ALLOWED_IPS.includes(clientIp)) {
-                return next();
-            }
+        const cleanIp = clientIp.replace('::ffff:', '');
+
+        if (ALLOWED_IPS.includes(cleanIp) || ALLOWED_IPS.includes(clientIp)) {
+            return next();
+        }
+
+        if (req.originalUrl === '/api/debug-ip' || req.originalUrl === '/api/login') {
+            return next();
         }
 
         const accessKey = req.headers['x-hwperu-key'] || req.query.key;
-
-        if (req.originalUrl === '/api/debug-ip') {
+        if (accessKey === MASTER_KEY) {
             return next();
         }
 
-        const isAuthorized =
-            accessKey === MASTER_KEY ||
-            ALLOWED_IPS.includes(clientIp);
+        try {
+            const pool = await poolPlanilla;
+            const dbCheck = await pool.request()
+                .input('ip', mssql.VarChar, cleanIp)
+                .query('SELECT TOP 1 ID FROM ALLOWED_IPS_WHITELIST WHERE IP_ADDRESS = @ip');
 
-        if (isAuthorized) {
-            return next();
+            if (dbCheck.recordset.length > 0) {
+                return next();
+            }
+        } catch (dbError) {
+            console.error('DB_IP_CHECK_ERROR:', dbError);
+            if (cleanIp === '127.0.0.1' || cleanIp === '::1') return next();
         }
 
         console.log(`--- ACCESO DENEGADO --- 
@@ -56,6 +63,7 @@ export const ipFilter = (req, res, next) => {
             return res.status(403).json({
                 success: false,
                 message: 'ACCESO_DENEGADO_IP_RESTRINGIDA',
+                details: 'Acceso no permitido: Su IP no está autorizada. Este intento está siendo monitoreado.',
                 detectedIp: clientIp
             });
         }

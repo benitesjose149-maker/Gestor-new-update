@@ -17,7 +17,7 @@ interface Vacation {
 }
 
 interface Employee {
-    id: number; // matched with backend response
+    id: number;
     nombre: string;
     apellidos: string;
     cargo: string;
@@ -41,7 +41,7 @@ export class VacationsComponent implements OnInit {
 
     currentVacation: any;
 
-    estados = ['PROGRAMADO', 'TOMADO', 'CANCELADO'];
+    estados = ['PROGRAMADO', 'TOMADO', 'CONCLUIDO', 'CANCELADO'];
 
     get scheduledCount(): number {
         return (this.vacations || []).filter(v => this.getDisplayStatus(v) === 'PROGRAMADO').length;
@@ -254,7 +254,11 @@ export class VacationsComponent implements OnInit {
         const startDate = new Date(vac.FECHA_INICIO);
         const startUtc = Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth(), startDate.getUTCDate());
 
+        const endDate = new Date(vac.FECHA_FIN);
+        const endUtc = Date.UTC(endDate.getUTCFullYear(), endDate.getUTCMonth(), endDate.getUTCDate());
+
         if (todayUtc < startUtc) return 'PROGRAMADO';
+        if (todayUtc > endUtc) return 'CONCLUIDO';
         return 'TOMADO';
     }
 }

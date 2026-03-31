@@ -13,10 +13,16 @@ import { API_URL } from '../api-config';
 export class SettingsPermissionsComponent implements OnInit {
     users: any[] = [];
     blockedAccounts: any[] = [];
+    allowedIps: any[] = [];
     loading = true;
     creatingUser = false;
+    addingIp = false;
 
-    // Formulario de nuevo usuario
+    newIp = {
+        address: '',
+        label: ''
+    };
+
     newUser = {
         email: '',
         password: '',
@@ -34,7 +40,8 @@ export class SettingsPermissionsComponent implements OnInit {
     async ngOnInit() {
         await Promise.all([
             this.loadUsers(),
-            this.loadBlockedAccounts()
+            this.loadBlockedAccounts(),
+            this.loadAllowedIps()
         ]);
     }
 
@@ -100,13 +107,12 @@ export class SettingsPermissionsComponent implements OnInit {
             });
 
             if (response.ok) {
-                // Si es el usuario actual, actualizamos su nombre en localStorage para que el header cambie
-                const currentUserJson = localStorage.getItem('currentUser');
+                const currentUserJson = sessionStorage.getItem('currentUser');
                 if (currentUserJson) {
                     const currentUser = JSON.parse(currentUserJson);
                     if (currentUser.email === user.EMAIL) {
                         currentUser.fullName = user.FULL_NAME;
-                        localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                        sessionStorage.setItem('currentUser', JSON.stringify(currentUser));
                     }
                 }
             } else {
@@ -120,11 +126,9 @@ export class SettingsPermissionsComponent implements OnInit {
     }
 
     async togglePermission(user: any, permissionField: string) {
-        // Handle both boolean and bit (1/0) types
         const currentValue = !!user[permissionField];
         const originalValue = user[permissionField];
 
-        // Toggle value (if it was 1/0, keep it as 1/0; if true/false, keep as true/false)
         if (typeof originalValue === 'number') {
             user[permissionField] = currentValue ? 0 : 1;
         } else {
@@ -149,13 +153,10 @@ export class SettingsPermissionsComponent implements OnInit {
             if (!response.ok) throw new Error('Failed to update');
         } catch (error) {
             console.error('Error updating permission:', error);
-            // Rollback on error
             user[permissionField] = originalValue;
             alert('No se pudo actualizar el permiso.');
         }
     }
-
-    // Métodos para creación de usuario
     generatePassword() {
         const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()";
         let pass = "";
@@ -194,6 +195,84 @@ export class SettingsPermissionsComponent implements OnInit {
         } finally {
             this.creatingUser = false;
         }
+    }
+
+    async loadAllowedIps() {
+        try {
+            const response = await fetch(`${API_URL}/api/admin/ips`, {
+                headers: this.getAuthHeaders()
+            });
+            this.allowedIps = await response.json();
+        } catch (error) {
+            console.error('Error loading allowed IPs:', error);
+        }
+    }
+
+    async addAllowedIp() {
+        if (!this.newIp.address) {
+            alert('Ingrese una dirección IP.');
+            return;
+        }
+        this.addingIp = true;
+        try {
+            const response = await fetch(`${API_URL}/api/admin/ips`, {
+                method: 'POST',
+                headers: this.getAuthHeaders(),
+                body: JSON.stringify(this.newIp)
+            });
+
+            if (response.ok) {
+                this.newIp = { address: '', label: '' };
+                await this.loadAllowedIps();
+            } else {
+                const data = await response.json();
+                alert(data.message || 'Error al agregar IP.');
+            }
+        } catch (error) {
+            console.error('Error adding IP:', error);
+            alert('Error de conexión.');
+        } finally {
+            this.addingIp = false;
+        }
+    }
+
+    async deleteAllowedIp(id: number) {
+        if (!confirm('¿Desea eliminar esta IP de la lista blanca?')) return;
+
+        try {
+            const response = await fetch(`${API_URL}/api/admin/ips/${id}`, {
+                method: 'DELETE',
+                headers: this.getAuthHeaders()
+            });
+
+            if (response.ok) {
+                await this.loadAllowedIps();
+            } else {
+                alert('No se pudo eliminar la IP.');
+            }
+        } catch (error) {
+            console.error('Error deleting IP:', error);
+        }
+    }
+
+    async detectMyIp() {
+        try {
+            const response = await fetch(`${API_URL}/api/debug-ip`);
+            const data = await response.json();
+            this.newIp.address = data.detectedIp.replace('::ffff:', '');
+            if (!this.newIp.label) this.newIp.label = 'Mi PC Actual';
+        } catch (error) {
+            console.error('Error detecting IP:', error);
+            alert('No se pudo detectar la IP automáticamente.');
+        }
+    }
+
+    getAuthHeaders() {
+        const masterKey = localStorage.getItem('hwperu_master_key') || '';
+        return {
+            'Content-Type': 'application/json',
+            'x-hwperu-key': masterKey
+        };
     }
 
     resetNewUser() {

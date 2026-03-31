@@ -134,6 +134,7 @@
 
 .badge.programado { background: #dbeafe; color: #1e40af; }
 .badge.tomado { background: #d1fae5; color: #065f46; }
+.badge.concluido { background: #e5e7eb; color: #4b5563; }
 .badge.cancelado { background: #fee2e2; color: #991b1b; }
 
 .obs-text {

@@ -62,7 +62,7 @@ export class LoginComponent {
 
     async onSubmit() {
         if (this.loginForm.valid) {
-            this.errorMessage = null; // Limpiar error previo
+            this.errorMessage = null;
             const { email, password } = this.loginForm.value;
             try {
                 const masterKey = localStorage.getItem('hwperu_master_key') || '';
@@ -78,11 +78,14 @@ export class LoginComponent {
                 const data = await response.json();
 
                 if (response.status === 403 && (data.message === 'MASTER_KEY_REQUIRED' || data.message === 'ACCESO_DENEGADO_IP_RESTRINGIDA')) {
-                    this.errorMessage = data.details || `Acceso denegado: Se requiere una Llave Maestra válida para entrar.`;
+                    this.errorMessage = data.details || `Acceso no permitido: Su IP no está autorizada. Este intento está siendo monitoreado.`;
                 } else if (response.ok && data.success) {
                     console.log('Login successful');
 
-                    // Manejar "Recordarme"
+                    if (data.masterKey) {
+                        localStorage.setItem('hwperu_master_key', data.masterKey);
+                        console.log('Master Key autorizada automáticamente por el servidor.');
+                    }
                     const { email, password, rememberMe } = this.loginForm.value;
                     if (rememberMe) {
                         localStorage.setItem('rememberedEmail', email);

@@ -158,14 +158,11 @@ export class PlanillaComponent implements OnInit {
         const sueldo = emp.sueldo || 0;
         emp.baseCalculo = sueldo + (emp.bonos || 0);
 
-        const hourlyRate = (emp.baseCalculo / 240) * 1.25;
-        // High precision for OT
+        const hourlyRate = (sueldo / 240) * 1.25;
         emp.montoHorasExtras = hourlyRate * (emp.horasExtras || 0);
 
         const totalIngresos = sueldo + emp.montoHorasExtras + (emp.bonos || 0);
 
-        // Calculate Pension Discount (AFP / ONP) based on sueldo base
-        // HONORARIOS employees do NOT have pension discounts
         let afpRate = 0;
         if (emp.tipoTrabajador !== 'RXH' && emp.tipoTrabajador !== 'HONORARIOS') {
             const regimenUpper = (emp.regimenPensionario || '').toUpperCase();
@@ -177,17 +174,14 @@ export class PlanillaComponent implements OnInit {
         }
         emp.afpPorcentaje = afpRate * 100;
 
-        // AFP se calcula sobre el sueldo base
-        let baseAfp = sueldo;
-
-        if (emp.calculoAfpMinimo) {
-            baseAfp = 1130;
-        }
+        // AFP siempre se calcula sobre el mínimo vital (1,130) según requerimiento
+        const MINIMO_PARA_AFP = 1130;
+        let baseAfp = MINIMO_PARA_AFP;
 
         emp.descuentoAfp = parseFloat((baseAfp * afpRate).toFixed(2));
 
-        // Absences deduction based on Base de Cálculo (Sueldo + Bono)
-        const dayRate = emp.baseCalculo / 30;
+        // Absences deduction based on Sueldo Base
+        const dayRate = sueldo / 30;
         const hourRate = dayRate / 8;
         emp.montoFaltas = parseFloat(((dayRate * emp.faltasDias) + (hourRate * emp.faltasHoras)).toFixed(2));
 
@@ -360,6 +354,7 @@ export class PlanillaComponent implements OnInit {
                 descuentoAdicional: emp.descuentoAdicional,
                 totalDescuento: emp.totalDescuento,
                 remuneracionNeta: emp.remuneracionNeta,
+                estado: emp.estado,
                 observaciones: emp.observaciones
             }))
         };
@@ -430,20 +425,19 @@ export class PlanillaComponent implements OnInit {
 
     openDeductionModal(emp: PayrollEmployee, type: 'DIA' | 'HORA') {
         const sueldo = emp.sueldo || 0;
-        const baseCalculo = sueldo + (emp.bonos || 0);
-        const valorDia = baseCalculo / 30;
+        const valorDia = sueldo / 30;
         const valorHora = valorDia / 8;
 
         this.deductionDetail = {
             title: type === 'DIA' ? 'Descuento por Días de Falta' : 'Descuento por Horas de Falta',
             empName: `${emp.nombre} ${emp.apellidos}`,
             sueldo: sueldo,
-            baseCalculo: baseCalculo,
+            baseCalculo: sueldo, // Changed to show only base salary in the modal too
             type: type,
             valorUnitario: type === 'DIA' ? valorDia : valorHora,
             cantidad: type === 'DIA' ? (emp.faltasDias || 0) : (emp.faltasHoras || 0),
             total: type === 'DIA' ? (valorDia * (emp.faltasDias || 0)) : (valorHora * (emp.faltasHoras || 0)),
-            formula: type === 'DIA' ? `S/ ${baseCalculo} ÷ 30` : `S/ ${valorDia.toFixed(2)} ÷ 8`,
+            formula: type === 'DIA' ? `S/ ${sueldo} ÷ 30` : `S/ ${valorDia.toFixed(2)} ÷ 8`,
             unrounded: type === 'DIA' ? valorDia : valorHora
         };
 

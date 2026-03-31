@@ -169,6 +169,7 @@
                     <span class="label">Periodo</span>
                     <span class="value">{{currentMonth}} {{currentYear}}</span>
                 </div>
+
             </div>
 
             <div class="detail-grid">
@@ -230,6 +231,10 @@
             </div>
 
             <div class="neto-banner">
+                <div style="font-size: 0.75rem; opacity: 0.8; margin-bottom: 4px; font-weight: 500;">
+                    S/ {{selectedEmployee.baseCalculo + selectedEmployee.montoHorasExtras | number:'1.2-2'}} (Ingr.)
+                    - S/ {{selectedEmployee.totalDescuento | number:'1.2-2'}} (Desc.)
+                </div>
                 <div class="neto-label">NETO A PAGAR</div>
                 <div class="neto-value">S/ {{selectedEmployee.remuneracionNeta | number:'1.2-2'}}</div>
             </div>
@@ -302,7 +307,7 @@
         </div>
         <div class="modal-body">
             <!-- Employee Info Header -->
-            <div
+            <div class="responsive-flex-banner"
                 style="display: flex; justify-content: space-between; margin-bottom: 1.5rem; background-color: #f9fafb; padding: 1rem; border-radius: 8px;">
                 <div>
                     <div style="font-size: 0.85rem; color: #6b7280;">Empleado</div>
@@ -319,7 +324,7 @@
             </div>
 
             <!-- Add New Item Row -->
-            <div
+            <div class="responsive-grid-row"
                 style="display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 1rem; align-items: end; margin-bottom: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid #e5e7eb;">
                 <div class="form-group">
                     <label
@@ -399,7 +404,7 @@
         </div>
         <div class="modal-body">
             <!-- Employee Info Header -->
-            <div
+            <div class="responsive-flex-banner"
                 style="display: flex; justify-content: space-between; margin-bottom: 1.5rem; background-color: #f9fafb; padding: 1rem; border-radius: 8px;">
                 <div>
                     <div style="font-size: 0.85rem; color: #6b7280;">Empleado</div>
@@ -416,7 +421,7 @@
             </div>
 
             <!-- Add New Item Row -->
-            <div
+            <div class="responsive-grid-row"
                 style="display: grid; grid-template-columns: 2fr 1fr 1fr auto auto; gap: 1rem; align-items: end; margin-bottom: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid #e5e7eb;">
                 <div class="form-group">
                     <label

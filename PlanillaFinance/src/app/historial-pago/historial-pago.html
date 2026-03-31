@@ -92,6 +92,7 @@
                         <th>Desc. Adic.</th>
                         <th>Total Desc.</th>
                         <th>Neto a Pagar</th>
+                        <th>Estado</th>
                         <th>Obs.</th>
                     </tr>
                 </thead>
@@ -120,6 +121,11 @@
                         <td class="text-right" style="color: #b91c1c; font-weight: 600;">{{emp.totalDescuento |
                             number:'1.2-2'}}</td>
                         <td class="text-right neto-cell">{{emp.remuneracionNeta | number:'1.2-2'}}</td>
+                        <td>
+                            <span class="badge" 
+                                [style.background-color]="emp.estado === 'PAGADO' ? '#d1fae5' : '#fef3c7'"
+                                [style.color]="emp.estado === 'PAGADO' ? '#065f46' : '#92400e'">{{emp.estado || '-'}}</span>
+                        </td>
                         <td>{{emp.observaciones || '-'}}</td>
                     </tr>
                 </tbody>
@@ -134,6 +140,7 @@
                             number:'1.2-2'}}</td>
                         <td class="text-right" style="font-weight: 700; color: #059669; font-size: 1rem;">
                             {{getTotalNeto() | number:'1.2-2'}}</td>
+                        <td></td>
                         <td></td>
                     </tr>
                 </tfoot>

@@ -42,4 +42,28 @@
             </li>
         </ul>
     </div>
+
+    <div class="widget">
+        <div class="widget-header">
+            <h2>🧾 Facturas UnPaid (WHMCS)</h2>
+            <span class="badge" *ngIf="unpaidInvoices.length > 0" style="background-color: #fee2e2; color: #b91c1c;">{{ unpaidInvoices.length }}</span>
+        </div>
+        <ul class="activity-list">
+            <li *ngIf="unpaidInvoices.length === 0" class="no-data">No hay facturas pendientes</li>
+            <li *ngFor="let inv of unpaidInvoices">
+                <div class="activity-icon" style="background-color: #fecaca; color: #dc2626; display: flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: bold;">
+                    !
+                </div>
+                <div class="activity-details" style="display: flex; justify-content: space-between; width: 100%;">
+                    <div style="display: flex; flex-direction: column;">
+                        <span class="activity-title">#{{ inv.id }} - {{ inv.cliente }}</span>
+                        <span class="activity-date text-red">Vence: <strong>{{ inv.vencimiento }}</strong></span>
+                    </div>
+                    <div style="font-weight: bold; color: #b91c1c;">
+                        S/ {{ inv.monto | number:'1.2-2' }}
+                    </div>
+                </div>
+            </li>
+        </ul>
+    </div>
 </div>

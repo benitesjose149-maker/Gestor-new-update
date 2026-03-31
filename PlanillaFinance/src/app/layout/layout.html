@@ -37,16 +37,18 @@
                 (click)="closeMobileMenu()">
                 <span class="label" *ngIf="!isSidebarCollapsed">Movimientos</span>
             </a>
+            <a routerLink="/attendance" class="nav-item" routerLinkActive="active" (click)="closeMobileMenu()">
+                <span class="label" *ngIf="!isSidebarCollapsed">Asistencia</span>
+            </a>
             <div class="nav-separator" *ngIf="!isSidebarCollapsed && hasAccess('finanzas')">
                 <span class="separator-text">FINANZAS</span>
             </div>
             <div class="nav-separator-line" *ngIf="isSidebarCollapsed && hasAccess('finanzas')"></div>
             <a routerLink="/finance" class="nav-item" routerLinkActive="active" *ngIf="hasAccess('finanzas')"
                 (click)="closeMobileMenu()">
-                <span class="label" *ngIf="!isSidebarCollapsed">IMM Finance</span>
+                <span class="label" *ngIf="!isSidebarCollapsed">Control Financiero</span>
             </a>
 
-            <!-- Spacer to push next items to bottom -->
             <div class="nav-spacer"></div>
 
             <a routerLink="/settings" class="nav-item" routerLinkActive="active" *ngIf="isSuperAdmin"

@@ -13,7 +13,7 @@ import { FinanceDashboardComponent } from './finance-dashboard/finance-dashboard
 import { SettingsPermissionsComponent } from './settings/settings-permissions';
 import { authGuard } from './auth/auth.guard';
 import { VacationsComponent } from './vacations/vacations';
-
+import { AttendanceComponent } from './attendance/attendance';
 export const routes: Routes = [
     { path: 'login', component: LoginComponent },
     {
@@ -30,7 +30,8 @@ export const routes: Routes = [
             { path: 'finance', component: FinanceDashboardComponent },
             { path: 'vacations', component: VacationsComponent },
             { path: 'settings', component: SettingsPermissionsComponent },
-            { path: '', redirectTo: '/login', pathMatch: 'full' }
+            { path: '', redirectTo: '/login', pathMatch: 'full' },
+            { path: 'attendance', component: AttendanceComponent },
         ]
     }
 ];

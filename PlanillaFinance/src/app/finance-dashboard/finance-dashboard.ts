@@ -20,8 +20,7 @@ export class FinanceDashboardComponent implements OnInit {
     thisMonthTotalGross: number = 0;
     thisMonthUnpaid: number = 0;
     totalPayrollNet: number = 0;
-    
-    // Paginación
+
     currentPage: number = 1;
     pageSize: any = 25;
     totalPages: number = 1;
@@ -63,7 +62,7 @@ export class FinanceDashboardComponent implements OnInit {
             };
 
             const [invoicesRes, egresosRes, mtRes, bancosRes, daRes, caRes, ccRes, tsRes, planillaRes] = await Promise.all([
-                fetch(API_URL + `/api/whmcs/invoices?mes=${currentMonth}&anio=${currentYear}&page=${this.currentPage}&limit=${this.pageSize}`, { headers: getAuthHeaders() }),
+                fetch(API_URL + `/api/whmcs/invoices?mes=${currentMonth}&anio=${currentYear}&page=${this.currentPage}&limit=${this.effectivePageSize}`, { headers: getAuthHeaders() }),
                 fetch(API_URL + `/api/finance/egresos?mes=${currentMonth}&anio=${currentYear}`, { headers: getAuthHeaders() }),
                 fetch(API_URL + '/api/finance/movement-types', { headers: getAuthHeaders() }),
                 fetch(API_URL + '/api/finance/bancos', { headers: getAuthHeaders() }),
@@ -73,6 +72,21 @@ export class FinanceDashboardComponent implements OnInit {
                 fetch(API_URL + '/api/finance/transaction-status', { headers: getAuthHeaders() }),
                 fetch(API_URL + '/api/planilla-borrador', { headers: getAuthHeaders() })
             ]);
+
+            if (mtRes.ok) this.movementTypes = await mtRes.json();
+            if (bancosRes.ok) this.bancos = await bancosRes.json();
+            if (daRes.ok) {
+                this.debitAccounts = await daRes.json();
+                if (!this.debitAccounts.find((d: any) => (d.name || '').toLowerCase().includes('bbva'))) {
+                    this.debitAccounts.push({ id: 'bbva-auto', name: 'BBVA' });
+                }
+                if (!this.debitAccounts.find((d: any) => (d.name || '').toLowerCase() === 'izipay cobrado')) {
+                    this.debitAccounts.push({ id: 'izipay-cobrado', name: 'Izipay cobrado' });
+                }
+            }
+            if (caRes.ok) this.creditAccounts = await caRes.json();
+            if (ccRes.ok) this.codigosContables = await ccRes.json();
+            if (tsRes.ok) this.transactionStatuses = await tsRes.json();
 
             let mergedItems: any[] = [];
 
@@ -96,11 +110,36 @@ export class FinanceDashboardComponent implements OnInit {
                         isScanning: false
                     };
 
-                    // Auto-scan if bank is missing
-                    if (!item.banco && item.WHMCS_InvoiceID) {
-                        this.autoEscanearPDF(item, item.WHMCS_InvoiceID);
-                    } else if (item.banco && !item.cuentaDebito) {
-                        item.cuentaDebito = this.buscarCuentaDebitoPorBanco(item.banco);
+                    if (item.banco) {
+                        const bMatch = this.bancos.find((b: any) => b.name.toLowerCase() === item.banco.toLowerCase().trim());
+                        if (bMatch) item.banco = bMatch.name;
+                    }
+
+                    if (item.cuentaDebito) {
+                        const dMatch = this.debitAccounts.find((d: any) => d.name.toLowerCase() === item.cuentaDebito.toLowerCase().trim());
+                        if (dMatch) item.cuentaDebito = dMatch.name;
+                    }
+
+                    const isIzipay = (item.tipoMovimiento || '').toLowerCase().includes('izipay') ||
+                        (item.cuentaDebito || '').toLowerCase().includes('izipay');
+
+                    if (isIzipay) {
+                        const bancoCaja = this.bancos.find((b: any) => b.name.toLowerCase().includes('caja'));
+                        if (!item.banco) item.banco = bancoCaja ? bancoCaja.name : 'CAJA VIRTUAL';
+
+                        const ctaIzipay = this.debitAccounts.find((d: any) => d.name.toLowerCase().includes('izipay'));
+                        item.cuentaDebito = ctaIzipay ? ctaIzipay.name : 'Izipay por cobrar';
+                    } else {
+                        if (!item.banco && item.WHMCS_InvoiceID) {
+                            this.autoEscanearPDF(item, item.WHMCS_InvoiceID);
+                        } else if (item.banco && !item.cuentaDebito) {
+                            item.cuentaDebito = this.buscarCuentaDebitoPorBanco(item.banco);
+                        } else if (item.banco && item.cuentaDebito) {
+                            const verifyDMatch = this.debitAccounts.find((d: any) => d.name === item.cuentaDebito);
+                            if (!verifyDMatch) {
+                                item.cuentaDebito = this.buscarCuentaDebitoPorBanco(item.banco);
+                            }
+                        }
                     }
 
                     return item;
@@ -136,14 +175,6 @@ export class FinanceDashboardComponent implements OnInit {
 
             console.log(`[FRONTEND DEBUG] Total items combinados: ${this.items.length}`);
 
-            if (mtRes.ok) this.movementTypes = await mtRes.json();
-            if (bancosRes.ok) this.bancos = await bancosRes.json();
-            if (daRes.ok) this.debitAccounts = await daRes.json();
-            if (caRes.ok) this.creditAccounts = await caRes.json();
-            if (ccRes.ok) this.codigosContables = await ccRes.json();
-            if (tsRes.ok) this.transactionStatuses = await tsRes.json();
-
-            // Calculate Payroll Total
             if (planillaRes.ok) {
                 const data = await planillaRes.json();
                 const now = new Date();
@@ -151,7 +182,6 @@ export class FinanceDashboardComponent implements OnInit {
                 const currentYear = now.getFullYear();
 
                 this.totalPayrollNet = data.reduce((sum: number, emp: any) => {
-                    // Calculate Bonuses
                     const bonosDetalle = emp.bonosDetalle || [];
                     const validBonos = bonosDetalle.filter((b: any) => {
                         if (b.permanente) return true;
@@ -161,17 +191,14 @@ export class FinanceDashboardComponent implements OnInit {
                     });
                     const bonosTotal = validBonos.reduce((s: number, b: any) => s + (b.monto || 0), 0);
 
-                    // Base Calculation
                     const sueldo = emp.sueldo || 0;
                     const baseCalculo = sueldo + bonosTotal;
 
-                    // Horas Extras
                     const hourlyRate = (baseCalculo / 240) * 1.25;
                     const montoHorasExtras = hourlyRate * (emp.horasExtras || 0);
 
                     const totalIngresos = sueldo + montoHorasExtras + bonosTotal;
 
-                    // AFP / SNP
                     let descuentoAfp = 0;
                     if (emp.tipoTrabajador === 'PLANILLA') {
                         let afpRate = 0;
@@ -184,16 +211,12 @@ export class FinanceDashboardComponent implements OnInit {
                         descuentoAfp = parseFloat((baseAfp * afpRate).toFixed(2));
                     }
 
-                    // Faltas
                     const dayRate = baseCalculo / 30;
                     const hourRate = dayRate / 8;
                     const montoFaltas = parseFloat(((dayRate * (emp.faltasDias || 0)) + (hourRate * (emp.faltasHoras || 0))).toFixed(2));
-
-                    // Total Discounts
                     let totalDescuento = descuentoAfp + (emp.adelanto || 0) + (emp.prestamo || 0) + montoFaltas + (emp.descuentoAdicional || 0);
                     totalDescuento = parseFloat(totalDescuento.toFixed(2));
 
-                    // Net
                     let remuneracionNeta = totalIngresos - totalDescuento;
                     remuneracionNeta = parseFloat(remuneracionNeta.toFixed(2));
 
@@ -252,9 +275,7 @@ export class FinanceDashboardComponent implements OnInit {
 
 
     get totalBruto(): number {
-        // Source of truth: Backend WHMCS Transaction Total
         if (this.thisMonthTotalGross > 0) return this.thisMonthTotalGross;
-        // Fallback for filtered views if needed (optional)
         return this.filteredItems.filter(i => !i.isEgreso).reduce((sum, inv) => sum + (inv.montoBruto || 0), 0);
     }
 
@@ -271,17 +292,20 @@ export class FinanceDashboardComponent implements OnInit {
     }
 
     get totalCajaVirtual(): number {
-        const ingresos = this.filteredItems.filter(i => !i.isEgreso && i.banco === 'CAJA VIRTUAL').reduce((sum, inv) => sum + (inv.depositoSalida || 0), 0);
+        const ingresos = this.filteredItems.filter(i => {
+             if (i.isEgreso) return false;
+             if (i.cuentaDebito === 'Izipay cobrado') return true;
+             return i.banco === 'CAJA VIRTUAL' && i.cuentaDebito !== 'Izipay por cobrar';
+        }).reduce((sum, inv) => sum + (inv.depositoSalida || 0), 0);
         const egresos = this.filteredItems.filter(i => i.isEgreso && i.banco === 'CAJA VIRTUAL').reduce((sum, e) => sum + (e.monto || 0), 0);
         return ingresos - egresos;
     }
 
     get balance1(): number {
-        return 0; // As requested, Balance 1 should be zero
+        return 0;
     }
 
     get balance2(): number {
-        // Balance 2 = Total Bruto (WHMCS) - Total Payroll Net
         return (this.thisMonthTotalGross || 0) - this.totalPayrollNet;
     }
 
@@ -317,8 +341,19 @@ export class FinanceDashboardComponent implements OnInit {
     }
 
     async onFieldChange(inv: any) {
-        if (inv.isEgreso) return;
         try {
+            if (inv.isEgreso) {
+                await fetch(API_URL + `/api/finance/egresos/${inv.id}/metadata`, {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({
+                        banco: inv.banco,
+                        codigoContable: inv.codigoContable
+                    })
+                });
+                return;
+            }
+
             await fetch(API_URL + `/api/finance/invoices/${inv.localId}/metadata`, {
                 method: 'POST',
                 headers: getAuthHeaders(),
@@ -334,7 +369,7 @@ export class FinanceDashboardComponent implements OnInit {
                 })
             });
         } catch (error) {
-            console.error('Error updating invoice metadata:', error);
+            console.error('Error updating metadata:', error);
         }
     }
 
@@ -352,7 +387,8 @@ export class FinanceDashboardComponent implements OnInit {
             categoria: 'Otros',
             referencia: '',
             origen: 'MANUAL',
-            observacion: ''
+            observacion: '',
+            codigoContable: ''
         };
     }
 
@@ -374,6 +410,10 @@ export class FinanceDashboardComponent implements OnInit {
         this.pageSize = event.target.value;
         this.currentPage = 1;
         this.loadAll();
+    }
+
+    get effectivePageSize(): number {
+        return this.pageSize === 'All' ? 9999 : parseInt(this.pageSize) || 25;
     }
 
     abrirNuevoModal() {
@@ -421,17 +461,18 @@ export class FinanceDashboardComponent implements OnInit {
     buscarCuentaDebitoPorBanco(banco: string): string {
         if (!banco || !this.debitAccounts.length) return '';
         const bancoLower = banco.toLowerCase().trim();
-        
-        // Exact match first
+
         const exactMatch = this.debitAccounts.find(cd => (cd.name || '').toLowerCase() === bancoLower);
         if (exactMatch) return exactMatch.name;
 
-        // Fuzzy match
         const cuenta = this.debitAccounts.find(cd => {
             const nombre = (cd.name || '').toLowerCase();
 
             if (bancoLower.includes('bcp') || bancoLower.includes('crédito') || bancoLower.includes('credito') || bancoLower.includes('yape')) {
                 return nombre.includes('bcp') || nombre.includes('crédito') || nombre.includes('credito') || nombre.includes('banco de');
+            }
+            if (bancoLower.includes('bbva') || bancoLower.includes('continental')) {
+                return nombre.includes('bbva') || nombre.includes('continental');
             }
             if (bancoLower.includes('interbank') || bancoLower.includes('plin')) {
                 return nombre.includes('interbank');
@@ -456,7 +497,6 @@ export class FinanceDashboardComponent implements OnInit {
                 if (item.banco && !item.cuentaDebito) {
                     item.cuentaDebito = this.buscarCuentaDebitoPorBanco(item.banco);
                 }
-                // Update on server
                 if (item.banco || item.cuentaDebito) {
                     this.onFieldChange(item);
                 }
@@ -509,5 +549,16 @@ export class FinanceDashboardComponent implements OnInit {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+    }
+
+    getClientParts(concepto: string): { empresa: string; nombre: string; servicio: string } {
+        if (!concepto) return { empresa: '', nombre: 'Sin datos', servicio: '' };
+        const lines = concepto.split('\n');
+        if (lines.length >= 3) {
+            return { empresa: lines[0], nombre: lines[1], servicio: lines.slice(2).join(' ') };
+        } else if (lines.length === 2) {
+            return { empresa: '', nombre: lines[0], servicio: lines[1] };
+        }
+        return { empresa: '', nombre: lines[0], servicio: '' };
     }
 }

@@ -61,6 +61,7 @@ export class GestionEmpleadosComponent {
     showAddModal: boolean = false;
     submitted: boolean = false;
     searchingDni: boolean = false;
+    isViewOnly: boolean = false;
 
     // Leave modal
     showLeaveModal: boolean = false;
@@ -198,6 +199,7 @@ export class GestionEmpleadosComponent {
 
     openAddModal() {
         this.showAddModal = true;
+        this.isViewOnly = false;
         this.submitted = false;
         this.newEmployee = {
             nombre: '', apellidos: '', dni: '', sexo: '', nacionalidad: '', telefono: '', contactoEmergencia: '', numeroEmergencia: '', fechaNacimiento: '', direccion: '',
@@ -253,6 +255,7 @@ export class GestionEmpleadosComponent {
     closeNotification() { this.showNotification = false; }
 
     viewEmployee(employee: any) {
+        this.isViewOnly = true;
         this.submitted = false;
         this.newEmployee = { ...employee, fechaNacimiento: this.formatDate(employee.fechaNacimiento), fechaInicio: this.formatDate(employee.fechaInicio), fechaFinContrato: this.formatDate(employee.fechaFinContrato) };
         this.showAddModal = true;
@@ -264,6 +267,7 @@ export class GestionEmpleadosComponent {
     }
 
     editEmployee(employee: any) {
+        this.isViewOnly = false;
         this.submitted = false;
         this.newEmployee = { ...employee, fechaNacimiento: this.formatDate(employee.fechaNacimiento), fechaInicio: this.formatDate(employee.fechaInicio), fechaFinContrato: this.formatDate(employee.fechaFinContrato) };
         this.showAddModal = true;

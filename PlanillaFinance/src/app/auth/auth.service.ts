@@ -11,7 +11,7 @@ export class AuthService {
   public currentUser: Observable<any>;
 
   constructor(private router: Router) {
-    const savedUser = localStorage.getItem('currentUser');
+    const savedUser = sessionStorage.getItem('currentUser');
     this.currentUserSubject = new BehaviorSubject<any>(savedUser ? JSON.parse(savedUser) : null);
     this.currentUser = this.currentUserSubject.asObservable();
   }
@@ -25,16 +25,12 @@ export class AuthService {
   }
 
   login(user: any) {
-    localStorage.setItem('currentUser', JSON.stringify(user));
+    sessionStorage.setItem('currentUser', JSON.stringify(user));
     this.currentUserSubject.next(user);
   }
 
   logout() {
-    localStorage.removeItem('currentUser');
-    // We could also clear remembered credentials if we want a complete reset,
-    // but usually "Remember Me" is persistent. However, the user said
-    // "al presionar en retroceder de mi navegador desde el login me regresa a mi pagina anterior"
-    // which implies they want to be sure they are logged out.
+    sessionStorage.removeItem('currentUser');
     this.currentUserSubject.next(null);
     this.router.navigate(['/login']);
   }

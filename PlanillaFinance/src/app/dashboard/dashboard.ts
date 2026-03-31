@@ -14,6 +14,7 @@ export class DashboardComponent implements OnInit {
     stats: any[] = [];
     birthdays: any[] = [];
     contractExpirations: any[] = [];
+    unpaidInvoices: any[] = [];
 
     async ngOnInit() {
         await this.loadStats();
@@ -28,6 +29,7 @@ export class DashboardComponent implements OnInit {
             this.stats = data.stats || [];
             this.birthdays = data.birthdays || [];
             this.contractExpirations = data.contractExpirations || [];
+            this.unpaidInvoices = data.unpaidInvoices || [];
         } catch (error) {
             console.error('Error loading dashboard stats:', error);
             this.stats = [

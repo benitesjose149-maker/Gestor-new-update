@@ -7,18 +7,42 @@ import { poolPlanilla, poolFinance } from './config/dbSql.js';
 import mssql from 'mssql';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { ipFilter } from './utils/ipFilter.js';
+import { ipFilter, ALLOWED_IPS } from './utils/ipFilter.js';
 import dniRoutes from './routes/dniRoutes.js';
 import gmailRoutes from './integrations/gmailRoutes.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import demoRoutes from './routes/endpoint-demo-test.js';
 
 const app = express();
 app.set('trust proxy', true);
 
+console.log('[DEBUG] Backend starting initialization...');
+
+app.get('/api/debug-ip-view', (req, res) => {
+    const forwarded = req.headers['x-forwarded-for'];
+    const remoteAddr = req.socket.remoteAddress;
+    const expressIp = req.ip;
+
+    res.json({
+        expressIp,
+        forwarded,
+        remoteAddr,
+        headers: req.headers,
+        detectedCleanIp: (expressIp || (typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : forwarded) || remoteAddr).replace('::ffff:', '')
+    });
+});
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const corsOptions = {
-    origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : '*',
+    origin: (origin, callback) => {
+        const allowedOrigins = process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : [];
+        if (!origin || allowedOrigins.includes(origin) || origin.includes('localhost') || origin.includes('127.0.0.1')) {
+            callback(null, true);
+        } else {
+            callback(null, true);
+        }
+    },
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     allowedHeaders: ['Content-Type', 'Authorization', 'x-hwperu-key'],
     credentials: true
@@ -33,6 +57,8 @@ app.use((req, res, next) => {
     console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl} - IP: ${req.ip}`);
     next();
 });
+
+app.use(ipFilter);
 
 const distPath = path.join(__dirname, 'public');
 app.use(express.static(distPath));
@@ -49,6 +75,7 @@ app.get('/api/debug-ip', (req, res) => {
 
 app.use('/api/reniec', dniRoutes);
 app.use('/api', gmailRoutes);
+app.use('/api/whmcs-demo', demoRoutes);
 
 app.get('/api/dashboard/stats', async (req, res) => {
     try {
@@ -85,14 +112,32 @@ app.get('/api/dashboard/stats', async (req, res) => {
             expiryDate: new Date(emp.FECHA_FIN_CONTRATO).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })
         }));
 
+        const financePool = await poolFinance;
+        const unpaidRes = await financePool.request()
+            .query(`
+                SELECT TOP 20 WHMCS_InvoiceID, ClienteConcepto, MontoBruto, Fecha 
+                FROM FINANCE_INVOICES 
+                WHERE EstadoWHMCS = 'Unpaid'
+                ORDER BY Fecha ASC
+            `);
+
+        const unpaidInvoices = unpaidRes.recordset.map(inv => ({
+            id: inv.WHMCS_InvoiceID,
+            cliente: inv.ClienteConcepto,
+            monto: inv.MontoBruto,
+            vencimiento: inv.Fecha ? new Date(inv.Fecha).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A'
+        }));
+
         res.json({
             stats: [
                 { title: 'Total Empleados', value: activeCount.toString(), change: 'Activos actualmente', icon: '👥', color: 'blue' },
                 { title: 'Nómina Total (Base)', value: `S/ ${totalPayroll.toLocaleString('es-PE', { minimumFractionDigits: 2 })}`, change: 'Inversión mensual', icon: '💰', color: 'green' },
-                { title: 'Vencimientos 30d', value: contractExpirations.length.toString(), change: 'Contratos por vencer', icon: '⚠️', color: 'orange' }
+                { title: 'Vencimientos 30d', value: contractExpirations.length.toString(), change: 'Contratos por vencer', icon: '⚠️', color: 'orange' },
+                { title: 'Facturas UnPaid', value: unpaidInvoices.length.toString(), change: 'Pendientes WHMCS', icon: '🧾', color: 'red' }
             ],
             birthdays: birthdays,
-            contractExpirations: contractExpirations
+            contractExpirations: contractExpirations,
+            unpaidInvoices: unpaidInvoices
         });
     } catch (error) {
         console.error('Error al obtener dashboard stats:', error);
@@ -144,6 +189,33 @@ app.post('/api/login', async (req, res) => {
 
         if (success) {
             const user = result.recordset[0];
+            const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+            const cleanIp = ip.replace('::ffff:', '');
+
+            let isWhitelisted = ALLOWED_IPS.includes(cleanIp) || ALLOWED_IPS.includes(ip);
+
+            if (!isWhitelisted) {
+                const dbIpCheck = await pool.request()
+                    .input('ip', mssql.VarChar, cleanIp)
+                    .query('SELECT TOP 1 ID FROM ALLOWED_IPS_WHITELIST WHERE IP_ADDRESS = @ip');
+
+                if (dbIpCheck.recordset.length > 0) {
+                    isWhitelisted = true;
+                }
+            }
+
+            let masterKeyForSession = null;
+            if (!isWhitelisted) {
+                if (user.ROL === 'SUPER_ADMIN') {
+                    masterKeyForSession = 'hw-peru-2025-seguro';
+                } else {
+                    return res.status(403).json({
+                        success: false,
+                        message: 'ACCESO_DENEGADO_IP_RESTRINGIDA',
+                        details: 'Acceso no permitido: Su IP no está autorizada para este usuario.'
+                    });
+                }
+            }
 
             await pool.request()
                 .input('email', mssql.VarChar, email)
@@ -153,6 +225,7 @@ app.post('/api/login', async (req, res) => {
             res.json({
                 success: true,
                 message: 'Login exitoso',
+                masterKey: masterKeyForSession,
                 user: {
                     email: user.EMAIL,
                     fullName: user.FULL_NAME,
@@ -203,6 +276,49 @@ app.post('/api/admin/security/unblock', async (req, res) => {
     } catch (error) {
         console.error('Error al desbloquear:', error);
         res.status(500).json({ success: false, message: 'Error al desbloquear: ' + error.message });
+    }
+});
+
+app.get('/api/admin/ips', async (req, res) => {
+    try {
+        const pool = await poolPlanilla;
+        const result = await pool.request().query('SELECT * FROM ALLOWED_IPS_WHITELIST ORDER BY CREATED_AT DESC');
+        res.json(result.recordset);
+    } catch (error) {
+        console.error('Error al obtener IPs:', error);
+        res.status(500).json({ error: 'Error al obtener lista de IPs' });
+    }
+});
+
+app.post('/api/admin/ips', async (req, res) => {
+    try {
+        const { address, label } = req.body;
+        if (!address) return res.status(400).json({ message: 'IP requerida' });
+
+        const pool = await poolPlanilla;
+        await pool.request()
+            .input('ip', mssql.VarChar, address)
+            .input('label', mssql.VarChar, label || 'Sin etiqueta')
+            .query('INSERT INTO ALLOWED_IPS_WHITELIST (IP_ADDRESS, LABEL) VALUES (@ip, @label)');
+
+        res.json({ success: true, message: 'IP autorizada correctamente' });
+    } catch (error) {
+        console.error('Error al agregar IP:', error);
+        res.status(500).json({ error: 'Error al guardar IP' });
+    }
+});
+
+app.delete('/api/admin/ips/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const pool = await poolPlanilla;
+        await pool.request()
+            .input('id', mssql.Int, id)
+            .query('DELETE FROM ALLOWED_IPS_WHITELIST WHERE ID = @id');
+        res.json({ success: true, message: 'IP eliminada' });
+    } catch (error) {
+        console.error('Error al eliminar IP:', error);
+        res.status(500).json({ error: 'Error al eliminar IP' });
     }
 });
 
@@ -555,10 +671,12 @@ app.get('/api/planilla-borrador', async (req, res) => {
         const now = new Date();
         const currentMes = (now.getMonth() + 1).toString().padStart(2, '0');
         const currentAnio = now.getFullYear();
+        const queryMes = `${currentAnio}-${currentMes}`;
 
         const result = await pool.request()
             .input('mes', mssql.VarChar, currentMes)
             .input('anio', mssql.Int, currentAnio)
+            .input('queryMes', mssql.VarChar, queryMes)
             .query(`
             SELECT e.*, 
                    ISNULL(pb.HORAS_EXTRAS, 0) as HORAS_EXTRAS,
@@ -569,15 +687,15 @@ app.get('/api/planilla-borrador', async (req, res) => {
                    pb.BONOS_JSON,
                    pb.OBSERVACIONES as BORRADOR_OBSERVACIONES,
                    (SELECT ISNULL(SUM(Monto), 0) FROM ADVANCES 
-                    WHERE CAST(EmpleadoNumId AS VARCHAR) = e.DNI 
-                    AND Tipo = 'ADELANTO' AND Mes = @mes AND Anio = @anio) as TOTAL_ADELANTO,
+                    WHERE NombreEmpleado = (e.NOMBRE + ' ' + e.APELLIDOS) 
+                    AND Tipo = 'ADELANTO' AND Mes = @queryMes) as TOTAL_ADELANTO,
                    (SELECT ISNULL(SUM(Monto), 0) FROM ADVANCES 
-                    WHERE CAST(EmpleadoNumId AS VARCHAR) = e.DNI 
-                    AND Tipo = 'PRESTAMO' AND Mes = @mes AND Anio = @anio) as TOTAL_PRESTAMO,
+                    WHERE NombreEmpleado = (e.NOMBRE + ' ' + e.APELLIDOS) 
+                    AND Tipo = 'PRESTAMO' AND Mes = @queryMes) as TOTAL_PRESTAMO,
                     (SELECT TOP 1 CAST(NumeroAdelanto AS VARCHAR) + '/' + ISNULL(CAST(TotalCuotas AS VARCHAR), '?') 
                      FROM ADVANCES 
-                     WHERE CAST(EmpleadoNumId AS VARCHAR) = e.DNI 
-                     AND Tipo = 'PRESTAMO' AND Mes = @mes AND Anio = @anio
+                     WHERE NombreEmpleado = (e.NOMBRE + ' ' + e.APELLIDOS) 
+                     AND Tipo = 'PRESTAMO' AND Mes = @queryMes
                      ORDER BY CreatedAt DESC) as CUOTA_DETALLE,
                    ISNULL(pb.ESTADO, 'PENDIENTE') as ESTADO
             FROM EMPLOYEES e
@@ -1112,11 +1230,12 @@ app.post('/api/historial-pago', async (req, res) => {
                 insertRequest.input('totalDesc', mssql.Decimal(18, 2), emp.totalDescuento);
                 insertRequest.input('neto', mssql.Decimal(18, 2), emp.remuneracionNeta);
                 insertRequest.input('obs', mssql.NVarChar, emp.observaciones || null);
+                insertRequest.input('estado', mssql.NVarChar, emp.estado || null);
                 insertRequest.input('periodo', mssql.NVarChar, periodo);
 
                 await insertRequest.query(`
-                    INSERT INTO HistorialPagos (Nombres, Cargo, Tipo, SueldoBase, Bonos, HrsExtra, PensionAFP, Adelanto, Prestamo, Faltas, DescAdic, TotalDesc, NetoAPagar, Observaciones, Periodo)
-                    VALUES (@nombres, @cargo, @tipo, @sueldo, @bonos, @hrsExtra, @afp, @adelanto, @prestamo, @faltas, @adic, @totalDesc, @neto, @obs, @periodo)
+                    INSERT INTO HistorialPagos (Nombres, Cargo, Tipo, SueldoBase, Bonos, HrsExtra, PensionAFP, Adelanto, Prestamo, Faltas, DescAdic, TotalDesc, NetoAPagar, Observaciones, Estado, Periodo)
+                    VALUES (@nombres, @cargo, @tipo, @sueldo, @bonos, @hrsExtra, @afp, @adelanto, @prestamo, @faltas, @adic, @totalDesc, @neto, @obs, @estado, @periodo)
                 `);
             }
 
@@ -1201,7 +1320,8 @@ app.get('/api/historial-pago/:periodo', async (req, res) => {
                 descuentoAdicional: d.DescAdic,
                 totalDescuento: d.TotalDesc,
                 remuneracionNeta: d.NetoAPagar,
-                observaciones: d.Observaciones || null
+                observaciones: d.Observaciones || null,
+                estado: d.Estado || null
             }))
         };
 
@@ -1266,6 +1386,26 @@ async function getWhmcsInvoiceDetails(invoiceId) {
     }
 }
 
+async function getWhmcsClientDetails(clientId) {
+    if (!clientId) return null;
+    const params = new URLSearchParams();
+    params.append('identifier', WHMCS_IDENTIFIER);
+    params.append('secret', WHMCS_SECRET);
+    params.append('action', 'GetClientsDetails');
+    params.append('clientid', clientId.toString());
+    params.append('responsetype', 'json');
+
+    try {
+        const res = await axios.post(WHMCS_API_URL, params, {
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        });
+        return res.data;
+    } catch (err) {
+        console.error(`Error fetching client ${clientId}:`, err.message);
+        return null;
+    }
+}
+
 function mapBankToDebitAccount(bank) {
     if (!bank) return '1031';
     const b = bank.toUpperCase();
@@ -1285,12 +1425,11 @@ export async function syncWhmcsInvoices() {
         const targetMonthStr = `${currentYear}-${(currentMonth + 1).toString().padStart(2, '0')}`;
         console.log(`[WHMCS Sync] Analyzing transactions for ${targetMonthStr}...`);
 
-        // --- FASE 1: Obtener TODAS las transacciones del mes ---
         const txParams = new URLSearchParams();
         txParams.append('identifier', WHMCS_IDENTIFIER);
         txParams.append('secret', WHMCS_SECRET);
         txParams.append('action', 'GetTransactions');
-        txParams.append('limitnum', '2000'); // Suficiente para capturar el mes
+        txParams.append('limitnum', '2000');
         txParams.append('responsetype', 'json');
 
         const txRes = await axios.post(WHMCS_API_URL, txParams, {
@@ -1310,7 +1449,6 @@ export async function syncWhmcsInvoices() {
             return;
         }
 
-        // Calcular total exacto (PEN)
         const totalGrossPEN = marchTrans.reduce((sum, t) => {
             const amt = parseFloat(t.amountin || 0);
             const r = parseFloat(t.rate || 1);
@@ -1319,7 +1457,6 @@ export async function syncWhmcsInvoices() {
 
         console.log(`[WHMCS Sync] WHMCS Total Match: S/ ${totalGrossPEN.toFixed(2)} (${marchTrans.length} transacciones)`);
 
-        // Identificar facturas únicas a sincronizar basándonos en las transacciones de este mes
         const invoiceIds = [...new Set(marchTrans.map(t => parseInt(t.invoiceid)).filter(id => id > 0))];
         console.log(`[WHMCS Sync] Syncing ${invoiceIds.length} unique invoices involved in these transactions.`);
 
@@ -1331,22 +1468,30 @@ export async function syncWhmcsInvoices() {
             const chunk = invoiceIds.slice(i, i + chunkSize);
             await Promise.all(chunk.map(async (invId) => {
                 try {
-                    // Obtener detalles completos de la factura
                     const detRes = await getWhmcsInvoiceDetails(invId);
                     if (!detRes || detRes.result !== 'success') return;
 
                     const invBase = detRes;
                     const invoiceTxsInPeriod = marchTrans.filter(t => parseInt(t.invoiceid) === invId);
 
-                    // Monto bruto para esta factura en este periodo
                     const totalMonthPENForInvoice = invoiceTxsInPeriod.reduce((sum, t) => {
                         const amt = parseFloat(t.amountin || 0);
                         const r = parseFloat(t.rate || 1);
                         return sum + (r > 0 ? (amt / r) : amt);
                     }, 0);
 
-                    const fullName = `${invBase.firstname || ''} ${invBase.lastname || ''}`.trim();
-                    const companyDisp = (invBase.companyname && invBase.companyname.trim()) ? invBase.companyname.trim() : null;
+                    const clientData = invBase.clientdetails || invBase;
+                    let fullName = `${clientData.firstname || ''} ${clientData.lastname || ''}`.trim();
+                    let companyDisp = (clientData.companyname && clientData.companyname.trim()) ? clientData.companyname.trim() : null;
+
+                    if (!fullName && !companyDisp && invBase.userid) {
+                        const clientRes = await getWhmcsClientDetails(invBase.userid);
+                        if (clientRes && clientRes.result === 'success') {
+                            fullName = `${clientRes.firstname || ''} ${clientRes.lastname || ''}`.trim();
+                            companyDisp = (clientRes.companyname && clientRes.companyname.trim()) ? clientRes.companyname.trim() : null;
+                        }
+                    }
+
                     const clienteName = fullName || companyDisp || 'Cliente WHMCS';
 
                     const invItems = invBase.items?.item || [];
@@ -1359,15 +1504,19 @@ export async function syncWhmcsInvoices() {
 
                     let cat = 'Otros';
                     const allItemsText = invItems.map(i => (i.description || '').toLowerCase()).join(' ');
-                    if (allItemsText.includes('hosting') && allItemsText.includes('dom')) cat = 'Hosting y Dominio';
-                    else if (allItemsText.includes('hosting')) cat = 'Hosting';
-                    else if (allItemsText.includes('dom')) cat = 'Dominio';
+                    const allItemsTypes = invItems.map(i => (i.type || '').toLowerCase());
+                    const hasHosting = allItemsText.includes('hosting') || allItemsTypes.some(t => t === 'hosting');
+                    const hasDomain = allItemsText.includes('dom') || allItemsTypes.some(t => t.includes('domain'));
+                    if (hasHosting && hasDomain) cat = 'Hosting y Dominio';
+                    else if (hasHosting) cat = 'Hosting';
+                    else if (hasDomain) cat = 'Dominio';
 
-                    let cleanConcept = `${clienteName}\n${firstItem} (${cat})`;
-                    cleanConcept = cleanConcept.replace(/\(\d{2}\/\d{2}\/\d{4} - \d{2}\/\d{2}\/\d{4}\)/g, '').replace(/\s+/g, ' ').trim();
+                    let cleanConcept = companyDisp
+                        ? `${companyDisp}\n${clienteName}\n${firstItem} (${cat})`
+                        : `${clienteName}\n${firstItem} (${cat})`;
+                    cleanConcept = cleanConcept.replace(/\(\d{2}\/\d{2}\/\d{4} - \d{2}\/\d{2}\/\d{4}\)/g, '').replace(/[^\S\n]+/g, ' ').split('\n').map(l => l.trim()).join('\n');
                     const clienteConcepto = cleanConcept.substring(0, 255);
 
-                    // Reconstruir origen/destino bancario desde la última transacción
                     let bankSource = '--';
                     let bankDestination = '--';
                     if (invoiceTxsInPeriod.length > 0) {
@@ -1383,7 +1532,11 @@ export async function syncWhmcsInvoices() {
                     const codigoContable = mapBankToDebitAccount(bankDestination);
                     const pm = (invBase.paymentmethod || '').toLowerCase();
                     let tipoMov = 'Transferencia';
-                    if (pm.includes('izipay')) tipoMov = 'Izipay';
+                    if (pm.includes('izipay')) {
+                        tipoMov = 'Izipay';
+                        bankSource = 'Caja Virtual';
+                        bankDestination = 'Izipay por cobrar';
+                    }
                     else if (pm.includes('yape')) tipoMov = 'Yape';
                     else if (pm.includes('plin')) tipoMov = 'Plin';
                     else if (pm.includes('tarjeta') || pm.includes('paypal') || pm.includes('stripe')) tipoMov = 'Tarjeta';
@@ -1391,7 +1544,10 @@ export async function syncWhmcsInvoices() {
 
                     const request = pool.request();
                     request.input('whmcsId', mssql.Int, invId);
-                    request.input('fecha', mssql.Date, invBase.date);
+
+                    // Recomedación técnica: Usar la fecha de pago (transacción) para el reporte financiero
+                    const paymentDate = (invoiceTxsInPeriod.length > 0) ? invoiceTxsInPeriod[0].date : invBase.date;
+                    request.input('fecha', mssql.Date, paymentDate);
                     request.input('cliente', mssql.NVarChar(255), clienteConcepto);
                     request.input('numFactura', mssql.NVarChar(50), invBase.invoicenum);
                     request.input('total', mssql.Decimal(18, 2), totalMonthPENForInvoice);
@@ -1408,6 +1564,7 @@ export async function syncWhmcsInvoices() {
                         IF EXISTS (SELECT 1 FROM FINANCE_INVOICES WHERE WHMCS_InvoiceID = @whmcsId)
                         BEGIN
                             UPDATE FINANCE_INVOICES SET 
+                                Fecha = @fecha,
                                 ClienteConcepto = @cliente,
                                 EstadoWHMCS = @estado, 
                                 Pagado = @pagado, 
@@ -1432,7 +1589,6 @@ export async function syncWhmcsInvoices() {
             }));
         }
 
-        // Cache final
         cachedThisMonthPaid = totalGrossPEN;
         cachedThisMonthTotalGross = totalGrossPEN;
         lastSyncTime = Date.now();
@@ -1467,12 +1623,17 @@ app.get('/api/whmcs/invoices', async (req, res) => {
             .input('month', mssql.Int, currentMonth)
             .input('year', mssql.Int, currentYear)
             .query(`
-                SELECT COUNT(*) as total FROM FINANCE_INVOICES 
-                WHERE MONTH(Fecha) = @month AND YEAR(Fecha) = @year
+                SELECT 
+                    COUNT(*) as total,
+                    SUM(ISNULL(MontoBruto, 0)) as totalGross
+                FROM FINANCE_INVOICES 
+                WHERE ( (MONTH(Fecha) = @month AND YEAR(Fecha) = @year) 
+                        OR (MONTH(UpdatedAt) = @month AND YEAR(UpdatedAt) = @year) )
                 AND EstadoLocal = 'Conciliado'
             `);
 
         const totalRecords = countResult.recordset[0].total;
+        const dbTotalGross = countResult.recordset[0].totalGross || 0;
 
         const result = await pool.request()
             .input('month', mssql.Int, currentMonth)
@@ -1481,7 +1642,8 @@ app.get('/api/whmcs/invoices', async (req, res) => {
             .input('limit', mssql.Int, limit)
             .query(`
                 SELECT * FROM FINANCE_INVOICES 
-                WHERE MONTH(Fecha) = @month AND YEAR(Fecha) = @year
+                WHERE ( (MONTH(Fecha) = @month AND YEAR(Fecha) = @year) 
+                        OR (MONTH(UpdatedAt) = @month AND YEAR(UpdatedAt) = @year) )
                 AND EstadoLocal = 'Conciliado'
                 ORDER BY Fecha DESC
                 OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
@@ -1514,7 +1676,7 @@ app.get('/api/whmcs/invoices', async (req, res) => {
         const thisMonthPaid = cachedThisMonthPaid;
         const thisMonthTotalGross = cachedThisMonthTotalGross > 0
             ? cachedThisMonthTotalGross
-            : penInvoices.reduce((sum, inv) => sum + (Number(inv.montoBruto) || 0), 0);
+            : dbTotalGross;
 
         const thisMonthUnpaid = penInvoices.filter(inv => {
             const st = (inv.estado || '').toLowerCase();
@@ -1575,9 +1737,13 @@ app.get('/api/whmcs/invoice/:id', async (req, res) => {
                     balance: parseFloat(inv.balance || 0),
                     notes: inv.notes || '',
                     client: {
-                        name: `${inv.firstname || ''} ${inv.lastname || ''}`.trim(),
-                        company: inv.companyname || '',
-                        email: inv.email || ''
+                        name: (() => {
+                            const c = inv.clientdetails || inv;
+                            const name = `${c.firstname || ''} ${c.lastname || ''}`.trim();
+                            return name || inv.companyname || 'Cliente WHMCS';
+                        })(),
+                        company: inv.companyname || (inv.clientdetails?.companyname) || '',
+                        email: inv.email || (inv.clientdetails?.email) || ''
                     },
                     items: items.map(it => ({
                         id: it.id,
@@ -1719,10 +1885,15 @@ app.get('/api/finance/credit-accounts', async (req, res) => {
 app.get('/api/finance/codigo-contable', async (req, res) => {
     try {
         const pool = await poolFinance;
-        const result = await pool.request().query('SELECT * FROM CODIGO_CONTABLE');
-        res.json(result.recordset.map(r => ({ id: r.id || r.Id || r.ID, name: r.name || r.Nombre || r.NOMBRE || r[Object.keys(r)[1]] })));
+        const result = await pool.request().query('SELECT * FROM CUENTAS_CONTABLES WHERE Activo = 1 ORDER BY Orden ASC');
+        res.json(result.recordset.map(r => ({
+            id: r.Id,
+            codigo: r.Codigo,
+            name: `${r.Codigo} - ${r.Nombre}`,
+            tipo: r.Tipo
+        })));
     } catch (error) {
-        console.error('Error CODIGO_CONTABLE:', error);
+        console.error('Error CUENTAS_CONTABLES:', error);
         res.status(500).json({ error: 'Error al obtener códigos contables' });
     }
 });
@@ -1766,7 +1937,8 @@ app.get('/api/finance/egresos', async (req, res) => {
             categoria: e.Categoria,
             referencia: e.Referencia,
             origen: e.Origen,
-            observacion: e.Observacion
+            observacion: e.Observacion,
+            codigoContable: e.CodigoContable
         }));
 
         const totalMes = egresos.reduce((sum, e) => sum + (Number(e.monto) || 0), 0);
@@ -1797,16 +1969,40 @@ app.post('/api/finance/egresos', async (req, res) => {
         request.input('ref', mssql.NVarChar(255), data.referencia || '');
         request.input('origen', mssql.NVarChar(50), data.origen || 'MANUAL');
         request.input('obs', mssql.NVarChar(500), data.observacion || '');
+        request.input('codigo', mssql.NVarChar(100), data.codigoContable || '');
 
         await request.query(`
-            INSERT INTO FINANCE_EGRESOS (Fecha, Monto, Banco, TipoEgreso, Comercio, Categoria, Referencia, Origen, Observacion, CreatedAt, UpdatedAt)
-            VALUES (@fecha, @monto, @banco, @tipo, @comercio, @categoria, @ref, @origen, @obs, GETDATE(), GETDATE())
+            INSERT INTO FINANCE_EGRESOS (Fecha, Monto, Banco, TipoEgreso, Comercio, Categoria, Referencia, Origen, Observacion, CodigoContable, CreatedAt, UpdatedAt)
+            VALUES (@fecha, @monto, @banco, @tipo, @comercio, @categoria, @ref, @origen, @obs, @codigo, GETDATE(), GETDATE())
         `);
 
         res.status(201).json({ success: true, message: 'Egreso registrado correctamente' });
     } catch (error) {
         console.error('Error creating egreso:', error);
         res.status(500).json({ error: 'Error al registrar egreso' });
+    }
+});
+
+app.post('/api/finance/egresos/:id/metadata', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const data = req.body;
+        const pool = await poolFinance;
+        const request = pool.request();
+        request.input('id', mssql.Int, id);
+        request.input('banco', mssql.NVarChar(100), data.banco || '');
+        request.input('codigo', mssql.NVarChar(100), data.codigoContable || '');
+        request.input('now', mssql.DateTime, new Date());
+
+        await request.query(`
+            UPDATE FINANCE_EGRESOS 
+            SET Banco = @banco, CodigoContable = @codigo, UpdatedAt = @now
+            WHERE ID = @id
+        `);
+        res.json({ success: true, message: 'Egreso actualizado' });
+    } catch (error) {
+        console.error('Error updating egreso metadata:', error);
+        res.status(500).json({ error: 'Error al actualizar egreso' });
     }
 });
 
@@ -1957,14 +2153,22 @@ app.use((err, req, res, next) => {
     res.status(500).json({ success: false, error: 'Error interno del servidor' });
 });
 
+console.log('[DEBUG] Setting up server listener...');
 app.listen(port, () => {
     console.log(`Server running at http://localhost:${port}`);
+}).on('error', (err) => {
+    console.error('[DEBUG] Server failed to start:', err);
+    process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
     console.error('UNHANDLED_REJECTION:', reason);
+    // Optionally log stack trace if available
+    if (reason && reason.stack) console.error(reason.stack);
 });
 
 process.on('uncaughtException', (err) => {
     console.error('UNCAUGHT_EXCEPTION:', err);
+    if (err && err.stack) console.error(err.stack);
+    process.exit(1); // Standard practice to exit on uncaught exception
 });
