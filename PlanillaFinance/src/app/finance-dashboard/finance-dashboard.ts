@@ -3,6 +3,8 @@ import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { API_URL, getAuthHeaders } from '../api-config';
+import { NotificationService } from '../shared/notification.service';
+import { AuditService } from '../shared/audit.service';
 
 @Component({
     selector: 'app-finance-dashboard',
@@ -42,7 +44,11 @@ export class FinanceDashboardComponent implements OnInit {
     codigosContables: any[] = [];
     transactionStatuses: any[] = [];
 
-    constructor(private cdr: ChangeDetectorRef) { }
+    constructor(
+        private cdr: ChangeDetectorRef, 
+        private notification: NotificationService,
+        private audit: AuditService
+    ) { }
 
     ngOnInit() {
         this.loadAll();
@@ -351,6 +357,7 @@ export class FinanceDashboardComponent implements OnInit {
                         codigoContable: inv.codigoContable
                     })
                 });
+                this.audit.log(`Actualizó metadata de Egreso ID: ${inv.id}`, 'Finanzas', `Banco: ${inv.banco} | Código Contable: ${inv.codigoContable}`);
                 return;
             }
 
@@ -368,6 +375,7 @@ export class FinanceDashboardComponent implements OnInit {
                     estadoLocal: inv.estadoLocal
                 })
             });
+            this.audit.log(`Actualizó metadata de Factura ID: ${inv.WHMCS_InvoiceID}`, 'Finanzas', `Banco: ${inv.banco} | Estado Local: ${inv.estadoLocal}`);
         } catch (error) {
             console.error('Error updating metadata:', error);
         }
@@ -427,7 +435,7 @@ export class FinanceDashboardComponent implements OnInit {
 
     async guardarEgreso() {
         if (this.nuevoEgreso.monto <= 0) {
-            alert('El monto debe ser mayor a 0');
+            this.notification.warning('El monto del egreso debe ser mayor a 0');
             return;
         }
         try {
@@ -436,25 +444,34 @@ export class FinanceDashboardComponent implements OnInit {
                 headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
                 body: JSON.stringify(this.nuevoEgreso)
             });
+            this.audit.log(`Registró nuevo Egreso Manual: S/ ${this.nuevoEgreso.monto}`, 'Finanzas', `Comercio: ${this.nuevoEgreso.comercio} | Categoría: ${this.nuevoEgreso.categoria}`);
+            this.notification.success('Egreso guardado correctamente.');
             this.cerrarModal();
             this.loadAll();
         } catch (error) {
             console.error('Error saving egreso:', error);
-            alert('Error al guardar el egreso');
+            this.notification.error('Error al guardar el egreso');
         }
     }
 
     async eliminarEgreso(id: number) {
-        if (!confirm('¿Está seguro de eliminar este egreso?')) return;
+        if (!await this.notification.confirm('¿Está seguro de eliminar este egreso?', 'Confirmar Eliminación')) return;
         try {
-            await fetch(API_URL + `/api/finance/egresos/${id}`, {
+            const response = await fetch(API_URL + `/api/finance/egresos/${id}`, {
                 method: 'DELETE',
                 headers: getAuthHeaders()
             });
-            this.loadAll();
+
+            if (response.ok) {
+                this.audit.log(`Eliminó Egreso ID: ${id}`, 'Finanzas');
+                this.notification.success('Egreso eliminado.');
+                this.loadAll();
+            } else {
+                this.notification.error('Error al intentar eliminar el egreso.');
+            }
         } catch (error) {
             console.error('Error deleting egreso:', error);
-            alert('Error al eliminar');
+            this.notification.error('Error al eliminar');
         }
     }
 
@@ -521,12 +538,12 @@ export class FinanceDashboardComponent implements OnInit {
             if (data.success) {
                 this.invoiceDetail = data.invoice;
             } else {
-                alert('No se pudo cargar la factura');
+                this.notification.error('No se pudo cargar la factura seleccionada.');
                 this.showInvoiceModal = false;
             }
         } catch (error) {
             console.error('Error loading invoice detail:', error);
-            alert('Error al cargar los detalles de la factura');
+            this.notification.error('Error al cargar los detalles de la factura');
             this.showInvoiceModal = false;
         } finally {
             this.loadingInvoice = false;

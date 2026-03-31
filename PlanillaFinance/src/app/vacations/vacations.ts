@@ -3,6 +3,7 @@ import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { API_URL, getAuthHeaders } from '../api-config';
+import { NotificationService } from '../shared/notification.service';
 
 interface Vacation {
     ID?: number;
@@ -60,7 +61,7 @@ export class VacationsComponent implements OnInit {
             .reduce((sum, v) => sum + (v.DIAS_UTILES || 0), 0);
     }
 
-    constructor(private cdr: ChangeDetectorRef) {
+    constructor(private cdr: ChangeDetectorRef, private notification: NotificationService) {
         console.log('VacationsComponent constructor called');
         this.currentVacation = this.getEmptyVacation();
     }
@@ -152,7 +153,7 @@ export class VacationsComponent implements OnInit {
 
     async guardarVacacion() {
         if (!this.currentVacation.idEmployee || this.currentVacation.diasUtiles <= 0) {
-            alert('Por favor complete los campos obligatorios.');
+            this.notification.warning('Por favor complete los campos obligatorios.');
             return;
         }
 
@@ -179,32 +180,37 @@ export class VacationsComponent implements OnInit {
             });
 
             if (response.ok) {
+                this.notification.success('Vacaciones guardadas correctamente.');
                 this.cerrarModal();
                 this.loadAll();
             } else {
                 const errData = await response.json().catch(() => ({}));
                 console.error('Server error:', errData);
-                alert(`Error al guardar vacaciones: ${errData.error || response.statusText}`);
+                this.notification.error(`Error al guardar vacaciones: ${errData.error || response.statusText}`);
             }
         } catch (error) {
             console.error('Error saving vacation:', error);
-            alert('Error de conexión');
+            this.notification.error('Error de conexión');
         }
     }
 
     async eliminarVacacion(id: any) {
         if (!id) return;
-        if (!confirm('¿Está seguro de eliminar este registro?')) return;
+        if (!await this.notification.confirm('¿Está seguro de eliminar este registro?', 'Confirmar Eliminación')) return;
         try {
             const response = await fetch(`${API_URL}/api/vacaciones/${id}`, {
                 method: 'DELETE',
                 headers: getAuthHeaders()
             });
             if (response.ok) {
+                this.notification.success('Registro eliminado.');
                 this.loadAll();
+            } else {
+                this.notification.error('Error al intentar eliminar.');
             }
         } catch (error) {
             console.error('Error deleting vacation:', error);
+            this.notification.error('Error de conexión.');
         }
     }
 

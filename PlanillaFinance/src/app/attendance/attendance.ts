@@ -1,6 +1,8 @@
 import { Component, OnInit } from "@angular/core";
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import * as ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
 
 @Component({
     selector: 'app-attendance',
@@ -140,5 +142,100 @@ export class AttendanceComponent implements OnInit {
 
     closeModal() {
         this.isModalOpen = false;
+    }
+
+    async exportToExcel() {
+        const workbook = new ExcelJS.Workbook();
+        const worksheet = workbook.addWorksheet('Asistencia');
+
+        let dataToExport = [];
+        let fileName = '';
+        let title = '';
+
+        if (this.viewMode === 'daily') {
+            title = `REPORTE DE ASISTENCIA DIARIA - ${this.selectedDate}`;
+            dataToExport = this.filteredData.map(record => [
+                record.fecha,
+                record.empId,
+                record.nombre,
+                record.cargo,
+                record.entrada,
+                record.salida,
+                record.totalHoras,
+                record.base,
+                record.extra || '0h',
+                record.falta || '0h',
+                record.estado
+            ]);
+            fileName = `Asistencia_Diaria_${this.selectedDate}.xlsx`;
+            
+            // Add Headers at D4
+            const headerRow = worksheet.getRow(4);
+            headerRow.values = [null, null, null, 'Fecha', 'ID', 'Empleado', 'Cargo', 'Entrada', 'Salida', 'Total Horas', 'Base', 'Extra', 'Falta', 'Estado'];
+        } else {
+            title = `RESUMEN DE ASISTENCIA MENSUAL - ${this.selectedMonth}`;
+            dataToExport = this.filteredMonthlyData.map(record => [
+                record.empId,
+                record.nombre,
+                record.cargo,
+                record.diasAsistidos,
+                record.faltas,
+                record.tardanzasTotales,
+                record.minTardeTotales,
+                record.horasExtraTotal,
+                record.horasFaltaTotal,
+                record.estado
+            ]);
+            fileName = `Resumen_Mensual_${this.selectedMonth}.xlsx`;
+
+            // Add Headers at D4
+            const headerRow = worksheet.getRow(4);
+            headerRow.values = [null, null, null, 'ID', 'Empleado', 'Cargo', 'Días Asistidos', 'Faltas', 'Tardanzas', 'Minutos Tarde', 'Horas Extra', 'Deuda Faltante', 'Estado Mes'];
+        }
+
+        // 1. DIME UNA COSAS LOS STILOS DE TODAS LAS SECCIONES... Add Title at D2
+        const titleCell = worksheet.getCell('D2');
+        titleCell.value = title;
+        titleCell.font = { name: 'Arial', size: 14, bold: true, color: { argb: 'FF2563EB' } };
+
+        // 2. Style Headers (Row 4, from Column D onwards)
+        const headerRow = worksheet.getRow(4);
+        headerRow.eachCell((cell, colNumber) => {
+            if (colNumber >= 4) {
+                cell.fill = {
+                    type: 'pattern',
+                    pattern: 'solid',
+                    fgColor: { argb: 'FFF1F5F9' }
+                };
+                cell.font = { bold: true, color: { argb: 'FF1E293B' } };
+                cell.border = {
+                    bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } }
+                };
+            }
+        });
+
+        // 3. Add Data starting at D5
+        dataToExport.forEach((row, index) => {
+            const rowNumber = 5 + index;
+            const excelRow = worksheet.getRow(rowNumber);
+            // Insert data starting from the 4th column (Column D)
+            excelRow.values = [null, null, null, ...row];
+        });
+
+        // Auto-fit columns
+        worksheet.columns.forEach((column, i) => {
+            if (i >= 3 && column && column.eachCell) {
+                let maxWidth = 15;
+                column.eachCell({ includeEmpty: true }, (cell) => {
+                    const columnWidth = cell.value ? cell.value.toString().length + 5 : 10;
+                    if (columnWidth > maxWidth) maxWidth = columnWidth;
+                });
+                column.width = maxWidth;
+            }
+        });
+
+        // Generate buffer and save
+        const buffer = await workbook.xlsx.writeBuffer();
+        saveAs(new Blob([buffer]), fileName);
     }
 }

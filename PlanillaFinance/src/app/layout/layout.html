@@ -10,7 +10,8 @@
         </div>
 
         <nav class="sidebar-nav">
-            <a routerLink="/dashboard" class="nav-item" routerLinkActive="active" (click)="closeMobileMenu()">
+            <a routerLink="/dashboard" class="nav-item" routerLinkActive="active" *ngIf="hasAccess('dashboard')"
+                (click)="closeMobileMenu()">
                 <span class="label" *ngIf="!isSidebarCollapsed">Panel Principal</span>
             </a>
             <a routerLink="/employees" class="nav-item" routerLinkActive="active" *ngIf="hasAccess('empleados')"
@@ -25,11 +26,11 @@
                 (click)="closeMobileMenu()">
                 <span class="label" *ngIf="!isSidebarCollapsed">Planilla</span>
             </a>
-            <a routerLink="/historial-pago" class="nav-item" routerLinkActive="active" *ngIf="hasAccess('planilla')"
+            <a routerLink="/historial-pago" class="nav-item" routerLinkActive="active" *ngIf="hasAccess('historial')"
                 (click)="closeMobileMenu()">
                 <span class="label" *ngIf="!isSidebarCollapsed">Consultar Pagos</span>
             </a>
-            <a routerLink="/vacations" class="nav-item" routerLinkActive="active" *ngIf="hasAccess('planilla')"
+            <a routerLink="/vacations" class="nav-item" routerLinkActive="active" *ngIf="hasAccess('vacaciones')"
                 (click)="closeMobileMenu()">
                 <span class="label" *ngIf="!isSidebarCollapsed">Vacaciones</span>
             </a>
@@ -37,7 +38,8 @@
                 (click)="closeMobileMenu()">
                 <span class="label" *ngIf="!isSidebarCollapsed">Movimientos</span>
             </a>
-            <a routerLink="/attendance" class="nav-item" routerLinkActive="active" (click)="closeMobileMenu()">
+            <a routerLink="/attendance" class="nav-item" routerLinkActive="active" *ngIf="hasAccess('asistencia')"
+                (click)="closeMobileMenu()">
                 <span class="label" *ngIf="!isSidebarCollapsed">Asistencia</span>
             </a>
             <div class="nav-separator" *ngIf="!isSidebarCollapsed && hasAccess('finanzas')">
@@ -84,3 +86,6 @@
         </div>
     </main>
 </div>
+
+<!-- Notificaciones y Modales Globales (Premium Design) -->
+<app-notification></app-notification>

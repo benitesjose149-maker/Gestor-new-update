@@ -174,6 +174,21 @@ app.post('/api/login', async (req, res) => {
             });
         }
 
+        // Safety migration: Ensure all columns exist before selecting
+        await pool.request().query(`
+            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('USERS') AND name = 'CAN_DASHBOARD')
+            ALTER TABLE USERS ADD CAN_DASHBOARD BIT DEFAULT 1;
+            
+            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('USERS') AND name = 'CAN_HISTORIAL')
+            ALTER TABLE USERS ADD CAN_HISTORIAL BIT DEFAULT 1;
+
+            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('USERS') AND name = 'CAN_VACACIONES')
+            ALTER TABLE USERS ADD CAN_VACACIONES BIT DEFAULT 1;
+
+            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('USERS') AND name = 'CAN_ASISTENCIA')
+            ALTER TABLE USERS ADD CAN_ASISTENCIA BIT DEFAULT 1;
+        `);
+
         const result = await pool.request()
             .input('email', mssql.VarChar, email)
             .input('password', mssql.VarChar, password)
@@ -222,6 +237,18 @@ app.post('/api/login', async (req, res) => {
                 .input('ip', mssql.VarChar, ip)
                 .query('DELETE FROM LOGIN_ATTEMPTS WHERE EMAIL = @email AND IP_ADDRESS = @ip AND SUCCESS = 0');
 
+            const userPermissions = {
+                dashboard: !!user.CAN_DASHBOARD || user.ROL === 'SUPER_ADMIN' || user.CAN_DASHBOARD === undefined,
+                planilla: !!user.CAN_PLANILLA || user.ROL === 'SUPER_ADMIN',
+                movimientos: !!user.CAN_MOVIMIENTOS || user.ROL === 'SUPER_ADMIN',
+                finanzas: !!user.CAN_FINANZAS || user.ROL === 'SUPER_ADMIN',
+                empleados: !!user.CAN_EMPLEADOS || user.ROL === 'SUPER_ADMIN',
+                archivados: !!user.CAN_ARCHIVADOS || user.ROL === 'SUPER_ADMIN',
+                historial: !!user.CAN_HISTORIAL || user.ROL === 'SUPER_ADMIN',
+                vacaciones: !!user.CAN_VACACIONES || user.ROL === 'SUPER_ADMIN',
+                asistencia: !!user.CAN_ASISTENCIA || user.ROL === 'SUPER_ADMIN'
+            };
+
             res.json({
                 success: true,
                 message: 'Login exitoso',
@@ -230,13 +257,7 @@ app.post('/api/login', async (req, res) => {
                     email: user.EMAIL,
                     fullName: user.FULL_NAME,
                     rol: user.ROL,
-                    permissions: {
-                        planilla: !!user.CAN_PLANILLA || user.ROL === 'SUPER_ADMIN',
-                        movimientos: !!user.CAN_MOVIMIENTOS || user.ROL === 'SUPER_ADMIN',
-                        finanzas: !!user.CAN_FINANZAS || user.ROL === 'SUPER_ADMIN',
-                        empleados: !!user.CAN_EMPLEADOS || user.ROL === 'SUPER_ADMIN',
-                        archivados: !!user.CAN_ARCHIVADOS || user.ROL === 'SUPER_ADMIN'
-                    }
+                    permissions: userPermissions
                 }
             });
         } else {
@@ -244,6 +265,63 @@ app.post('/api/login', async (req, res) => {
         }
     } catch (error) {
         console.error('Error en login:', error);
+        res.status(500).json({ success: false, message: 'Error en el servidor' });
+    }
+});
+
+// Nuevo endpoint para obtener el perfil y los permisos actuales de un usuario (para refresco automático)
+app.get('/api/auth/me/:email', async (req, res) => {
+    try {
+        const { email } = req.params;
+        const pool = await poolPlanilla;
+
+        // Safety migration: Ensure all columns exist before selecting
+        await pool.request().query(`
+            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('USERS') AND name = 'CAN_DASHBOARD')
+            ALTER TABLE USERS ADD CAN_DASHBOARD BIT DEFAULT 1;
+            
+            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('USERS') AND name = 'CAN_HISTORIAL')
+            ALTER TABLE USERS ADD CAN_HISTORIAL BIT DEFAULT 1;
+
+            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('USERS') AND name = 'CAN_VACACIONES')
+            ALTER TABLE USERS ADD CAN_VACACIONES BIT DEFAULT 1;
+
+            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('USERS') AND name = 'CAN_ASISTENCIA')
+            ALTER TABLE USERS ADD CAN_ASISTENCIA BIT DEFAULT 1;
+        `);
+
+        const result = await pool.request()
+            .input('email', mssql.VarChar, email)
+            .query('SELECT * FROM USERS WHERE EMAIL = @email');
+
+        if (result.recordset.length > 0) {
+            const user = result.recordset[0];
+            const userPermissions = {
+                dashboard: !!user.CAN_DASHBOARD || user.ROL === 'SUPER_ADMIN' || user.CAN_DASHBOARD === undefined,
+                planilla: !!user.CAN_PLANILLA || user.ROL === 'SUPER_ADMIN',
+                movimientos: !!user.CAN_MOVIMIENTOS || user.ROL === 'SUPER_ADMIN',
+                finanzas: !!user.CAN_FINANZAS || user.ROL === 'SUPER_ADMIN',
+                empleados: !!user.CAN_EMPLEADOS || user.ROL === 'SUPER_ADMIN',
+                archivados: !!user.CAN_ARCHIVADOS || user.ROL === 'SUPER_ADMIN',
+                historial: !!user.CAN_HISTORIAL || user.ROL === 'SUPER_ADMIN',
+                vacaciones: !!user.CAN_VACACIONES || user.ROL === 'SUPER_ADMIN',
+                asistencia: !!user.CAN_ASISTENCIA || user.ROL === 'SUPER_ADMIN'
+            };
+
+            res.json({
+                success: true,
+                user: {
+                    email: user.EMAIL,
+                    fullName: user.FULL_NAME,
+                    rol: user.ROL,
+                    permissions: userPermissions
+                }
+            });
+        } else {
+            res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+        }
+    } catch (error) {
+        console.error('Error al obtener perfil:', error);
         res.status(500).json({ success: false, message: 'Error en el servidor' });
     }
 });
@@ -325,7 +403,23 @@ app.delete('/api/admin/ips/:id', async (req, res) => {
 app.get('/api/admin/users', async (req, res) => {
     try {
         const pool = await poolPlanilla;
-        const result = await pool.request().query('SELECT ID_USERS, EMAIL, FULL_NAME, ROL, CAN_PLANILLA, CAN_MOVIMIENTOS, CAN_FINANZAS, CAN_EMPLEADOS, CAN_ARCHIVADOS FROM USERS');
+
+        // Safety migration: Ensure all columns exist before selecting
+        await pool.request().query(`
+            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('USERS') AND name = 'CAN_DASHBOARD')
+            ALTER TABLE USERS ADD CAN_DASHBOARD BIT DEFAULT 1;
+            
+            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('USERS') AND name = 'CAN_HISTORIAL')
+            ALTER TABLE USERS ADD CAN_HISTORIAL BIT DEFAULT 1;
+
+            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('USERS') AND name = 'CAN_VACACIONES')
+            ALTER TABLE USERS ADD CAN_VACACIONES BIT DEFAULT 1;
+
+            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('USERS') AND name = 'CAN_ASISTENCIA')
+            ALTER TABLE USERS ADD CAN_ASISTENCIA BIT DEFAULT 1;
+        `);
+
+        const result = await pool.request().query('SELECT ID_USERS, EMAIL, FULL_NAME, ROL, CAN_PLANILLA, CAN_MOVIMIENTOS, CAN_FINANZAS, CAN_EMPLEADOS, CAN_ARCHIVADOS, CAN_DASHBOARD, CAN_HISTORIAL, CAN_VACACIONES, CAN_ASISTENCIA FROM USERS');
         res.json(result.recordset);
     } catch (error) {
         console.error('Error al obtener usuarios:', error);
@@ -333,9 +427,24 @@ app.get('/api/admin/users', async (req, res) => {
     }
 });
 
+app.delete('/api/admin/users/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const pool = await poolPlanilla;
+        await pool.request()
+            .input('id', mssql.Int, id)
+            .query('DELETE FROM USERS WHERE ID_USERS = @id');
+
+        res.json({ success: true, message: 'Usuario eliminado correctamente' });
+    } catch (error) {
+        console.error('Error al eliminar usuario:', error);
+        res.status(500).json({ success: false, message: 'Error al eliminar usuario: ' + error.message });
+    }
+});
+
 app.post('/api/admin/update-permissions', async (req, res) => {
     try {
-        const { id, full_name, can_planilla, can_movimientos, can_finanzas, can_empleados, can_archivados } = req.body;
+        const { id, full_name, can_planilla, can_movimientos, can_finanzas, can_empleados, can_archivados, can_dashboard, can_historial, can_vacaciones, can_asistencia } = req.body;
         const pool = await poolPlanilla;
         await pool.request()
             .input('id', mssql.Int, id)
@@ -345,7 +454,11 @@ app.post('/api/admin/update-permissions', async (req, res) => {
             .input('p3', mssql.Bit, can_finanzas ? 1 : 0)
             .input('p4', mssql.Bit, can_empleados ? 1 : 0)
             .input('p5', mssql.Bit, can_archivados ? 1 : 0)
-            .query('UPDATE USERS SET FULL_NAME = @name, CAN_PLANILLA = @p1, CAN_MOVIMIENTOS = @p2, CAN_FINANZAS = @p3, CAN_EMPLEADOS = @p4, CAN_ARCHIVADOS = @p5 WHERE ID_USERS = @id');
+            .input('p6', mssql.Bit, can_dashboard ? 1 : 0)
+            .input('p7', mssql.Bit, can_historial ? 1 : 0)
+            .input('p8', mssql.Bit, can_vacaciones ? 1 : 0)
+            .input('p9', mssql.Bit, can_asistencia ? 1 : 0)
+            .query('UPDATE USERS SET FULL_NAME = @name, CAN_PLANILLA = @p1, CAN_MOVIMIENTOS = @p2, CAN_FINANZAS = @p3, CAN_EMPLEADOS = @p4, CAN_ARCHIVADOS = @p5, CAN_DASHBOARD = @p6, CAN_HISTORIAL = @p7, CAN_VACACIONES = @p8, CAN_ASISTENCIA = @p9 WHERE ID_USERS = @id');
 
         res.json({ success: true, message: 'Permisos actualizados correctamente' });
     } catch (error) {
@@ -378,15 +491,70 @@ app.post('/api/admin/create-user', async (req, res) => {
             .input('p3', mssql.Bit, permissions.finanzas ? 1 : 0)
             .input('p4', mssql.Bit, permissions.empleados ? 1 : 0)
             .input('p5', mssql.Bit, permissions.archivados ? 1 : 0)
+            .input('p6', mssql.Bit, permissions.dashboard ? 1 : 0)
+            .input('p7', mssql.Bit, permissions.historial ? 1 : 0)
+            .input('p8', mssql.Bit, permissions.vacaciones ? 1 : 0)
+            .input('p9', mssql.Bit, permissions.asistencia ? 1 : 0)
             .query(`
-                INSERT INTO USERS (EMAIL, PASSWORD, FULL_NAME, ROL, CAN_PLANILLA, CAN_MOVIMIENTOS, CAN_FINANZAS, CAN_EMPLEADOS, CAN_ARCHIVADOS)
-                VALUES (@email, @pass, @name, @role, @p1, @p2, @p3, @p4, @p5)
+                INSERT INTO USERS (EMAIL, PASSWORD, FULL_NAME, ROL, CAN_PLANILLA, CAN_MOVIMIENTOS, CAN_FINANZAS, CAN_EMPLEADOS, CAN_ARCHIVADOS, CAN_DASHBOARD, CAN_HISTORIAL, CAN_VACACIONES, CAN_ASISTENCIA)
+                VALUES (@email, @pass, @name, @role, @p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9)
             `);
 
         res.json({ success: true, message: 'Usuario creado correctamente' });
     } catch (error) {
         console.error('Error al crear usuario:', error);
         res.status(500).json({ success: false, message: 'Error al crear usuario: ' + error.message });
+    }
+});
+
+// ACTIVITY LOGS ENDPOINTS
+app.post('/api/admin/logs', async (req, res) => {
+    try {
+        const { user, action, module, details } = req.body;
+        const pool = await poolPlanilla;
+
+        // Auto-create table if not exists (Lazy Load)
+        await pool.request().query(`
+            IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='ACTIVITY_LOGS' AND xtype='U')
+            BEGIN
+                CREATE TABLE ACTIVITY_LOGS (
+                    ID INT IDENTITY(1,1) PRIMARY KEY,
+                    USER_EMAIL NVARCHAR(255),
+                    ACTION NVARCHAR(MAX),
+                    MODULE NVARCHAR(100),
+                    DETAILS NVARCHAR(MAX),
+                    CREATED_AT DATETIME DEFAULT GETDATE()
+                )
+            END
+        `);
+
+        await pool.request()
+            .input('user', mssql.NVarChar, user || 'Sistema')
+            .input('action', mssql.NVarChar, action)
+            .input('module', mssql.NVarChar, module)
+            .input('details', mssql.NVarChar, details || '')
+            .query('INSERT INTO ACTIVITY_LOGS (USER_EMAIL, ACTION, MODULE, DETAILS) VALUES (@user, @action, @module, @details)');
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error recording log:', error);
+        res.status(500).json({ error: 'Failed to record log' });
+    }
+});
+
+app.get('/api/admin/logs', async (req, res) => {
+    const masterKey = req.headers['x-hwperu-key'];
+    if (masterKey !== 'hw-peru-2025-seguro') {
+        return res.status(403).json({ error: 'Master Key requerida para ver logs' });
+    }
+
+    try {
+        const pool = await poolPlanilla;
+        const result = await pool.request().query('SELECT TOP 100 * FROM ACTIVITY_LOGS ORDER BY CREATED_AT DESC');
+        res.json(result.recordset);
+    } catch (error) {
+        console.error('Error fetching logs:', error);
+        res.status(500).json({ error: 'Failed to fetch logs' });
     }
 });
 

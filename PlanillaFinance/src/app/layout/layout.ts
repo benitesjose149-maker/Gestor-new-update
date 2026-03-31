@@ -2,11 +2,12 @@ import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink, RouterLinkActive, RouterOutlet, Router } from '@angular/router';
 import { AuthService } from '../auth/auth.service';
+import { NotificationComponent } from '../shared/notification.component';
 
 @Component({
     selector: 'app-layout',
     standalone: true,
-    imports: [CommonModule, RouterLink, RouterLinkActive, RouterOutlet],
+    imports: [CommonModule, RouterLink, RouterLinkActive, RouterOutlet, NotificationComponent],
     templateUrl: './layout.html',
     styleUrl: './layout.css'
 })
@@ -30,7 +31,11 @@ export class LayoutComponent {
         if (!this.currentUser) return false;
         const role = this.currentUser.rol?.toUpperCase();
         if (role === 'SUPER_ADMIN') return true;
-        return this.currentUser.permissions && !!this.currentUser.permissions[section];
+
+        const permissions = this.currentUser.permissions || {};
+        if (section === 'dashboard' && permissions[section] === undefined) return true;
+
+        return !!permissions[section];
     }
 
     get isSuperAdmin(): boolean {
@@ -39,7 +44,6 @@ export class LayoutComponent {
 
     get userName(): string {
         if (!this.currentUser) return 'Usuario';
-        // Si tiene nombre completo, lo usamos. Si no, usamos la parte antes del @ del correo
         return this.currentUser.fullName || this.currentUser.email.split('@')[0];
     }
 

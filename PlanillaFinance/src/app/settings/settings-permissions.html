@@ -13,11 +13,16 @@
                     <th>Email</th>
                     <th>Nombre</th>
                     <th>Rol</th>
+                    <th class="text-center">Dashboard</th>
                     <th class="text-center">Empleados</th>
                     <th class="text-center">Archivados</th>
                     <th class="text-center">Planilla</th>
+                    <th class="text-center">Pagos</th>
+                    <th class="text-center">Vacaciones</th>
                     <th class="text-center">Movimientos</th>
+                    <th class="text-center">Asistencia</th>
                     <th class="text-center">Finanzas</th>
+                    <th class="text-center">Acción</th>
                 </tr>
             </thead>
             <tbody>
@@ -34,6 +39,14 @@
                         <span class="role-badge" [class.super]="user.ROL === 'SUPER_ADMIN'">
                             {{ user.ROL }}
                         </span>
+                    </td>
+                    <td class="text-center">
+                        <label class="switch" *ngIf="user.ROL !== 'SUPER_ADMIN'">
+                            <input type="checkbox" [checked]="user.CAN_DASHBOARD"
+                                (change)="togglePermission(user, 'CAN_DASHBOARD')">
+                            <span class="slider round"></span>
+                        </label>
+                        <span *ngIf="user.ROL === 'SUPER_ADMIN'" class="full-access">Acceso Total</span>
                     </td>
                     <td class="text-center">
                         <label class="switch" *ngIf="user.ROL !== 'SUPER_ADMIN'">
@@ -61,8 +74,32 @@
                     </td>
                     <td class="text-center">
                         <label class="switch" *ngIf="user.ROL !== 'SUPER_ADMIN'">
+                            <input type="checkbox" [checked]="user.CAN_HISTORIAL"
+                                (change)="togglePermission(user, 'CAN_HISTORIAL')">
+                            <span class="slider round"></span>
+                        </label>
+                        <span *ngIf="user.ROL === 'SUPER_ADMIN'" class="full-access">Acceso Total</span>
+                    </td>
+                    <td class="text-center">
+                        <label class="switch" *ngIf="user.ROL !== 'SUPER_ADMIN'">
+                            <input type="checkbox" [checked]="user.CAN_VACACIONES"
+                                (change)="togglePermission(user, 'CAN_VACACIONES')">
+                            <span class="slider round"></span>
+                        </label>
+                        <span *ngIf="user.ROL === 'SUPER_ADMIN'" class="full-access">Acceso Total</span>
+                    </td>
+                    <td class="text-center">
+                        <label class="switch" *ngIf="user.ROL !== 'SUPER_ADMIN'">
                             <input type="checkbox" [checked]="user.CAN_MOVIMIENTOS"
                                 (change)="togglePermission(user, 'CAN_MOVIMIENTOS')">
+                            <span class="slider round"></span>
+                        </label>
+                        <span *ngIf="user.ROL === 'SUPER_ADMIN'" class="full-access">Acceso Total</span>
+                    </td>
+                    <td class="text-center">
+                        <label class="switch" *ngIf="user.ROL !== 'SUPER_ADMIN'">
+                            <input type="checkbox" [checked]="user.CAN_ASISTENCIA"
+                                (change)="togglePermission(user, 'CAN_ASISTENCIA')">
                             <span class="slider round"></span>
                         </label>
                         <span *ngIf="user.ROL === 'SUPER_ADMIN'" class="full-access">Acceso Total</span>
@@ -75,67 +112,14 @@
                         </label>
                         <span *ngIf="user.ROL === 'SUPER_ADMIN'" class="full-access">Acceso Total</span>
                     </td>
+                    <td class="text-center">
+                        <button class="delete-btn-user" (click)="deleteUser(user)" title="Eliminar este administrador">
+                            Eliminar
+                        </button>
+                    </td>
                 </tr>
             </tbody>
         </table>
-    </div>
-
-    <!-- Gestión de IPs Autorizadas (NUEVO) -->
-    <div class="settings-card ip-management-section" style="margin-top: 2rem;">
-        <div class="settings-header">
-            <h3>Gestión de IPs Autorizadas</h3>
-            <p>Lista de IPs que pueden acceder al sistema sin restricciones. Los Super Admins siempre tienen acceso.</p>
-        </div>
-
-        <div class="ip-management-container">
-            <div class="ip-list">
-                <table class="users-table minis">
-                    <thead>
-                        <tr>
-                            <th>IP</th>
-                            <th>Etiqueta / Descripción</th>
-                            <th>Fecha</th>
-                            <th class="text-center">Acción</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr *ngFor="let ip of allowedIps">
-                            <td><code class="ip-badge green">{{ ip.IP_ADDRESS }}</code></td>
-                            <td>{{ ip.LABEL }}</td>
-                            <td><small>{{ ip.CREATED_AT | date:'shortDate' }}</small></td>
-                            <td class="text-center">
-                                <button class="delete-btn" (click)="deleteAllowedIp(ip.ID)">
-                                    Eliminar
-                                </button>
-                            </td>
-                        </tr>
-                        <tr *ngIf="allowedIps.length === 0">
-                            <td colspan="4" class="text-center no-data">No hay IPs personalizadas registradas.</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="ip-form">
-                <h4>Agregar Nueva IP</h4>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Dirección IP</label>
-                        <div class="input-with-action">
-                            <input type="text" [(ngModel)]="newIp.address" placeholder="0.0.0.0">
-                            <button class="detect-btn" (click)="detectMyIp()">Detectar</button>
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label>Etiqueta (Opcional)</label>
-                        <input type="text" [(ngModel)]="newIp.label" placeholder="Ej: Oficina Central">
-                    </div>
-                    <button class="add-ip-btn" [disabled]="addingIp" (click)="addAllowedIp()">
-                        {{ addingIp ? 'Agregando...' : 'Autorizar IP' }}
-                    </button>
-                </div>
-            </div>
-        </div>
     </div>
 
     <div class="settings-grid" style="margin-top: 3rem;">
@@ -204,6 +188,9 @@
 
                 <div class="permissions-grid">
                     <label class="perm-item">
+                        <input type="checkbox" [(ngModel)]="newUser.permissions.dashboard"> Panel Principal
+                    </label>
+                    <label class="perm-item">
                         <input type="checkbox" [(ngModel)]="newUser.permissions.empleados"> Empleados
                     </label>
                     <label class="perm-item">
@@ -213,7 +200,16 @@
                         <input type="checkbox" [(ngModel)]="newUser.permissions.planilla"> Planilla
                     </label>
                     <label class="perm-item">
+                        <input type="checkbox" [(ngModel)]="newUser.permissions.historial"> Pagos
+                    </label>
+                    <label class="perm-item">
+                        <input type="checkbox" [(ngModel)]="newUser.permissions.vacaciones"> Vacaciones
+                    </label>
+                    <label class="perm-item">
                         <input type="checkbox" [(ngModel)]="newUser.permissions.movimientos"> Movimientos
+                    </label>
+                    <label class="perm-item">
+                        <input type="checkbox" [(ngModel)]="newUser.permissions.asistencia"> Asistencia
                     </label>
                     <label class="perm-item">
                         <input type="checkbox" [(ngModel)]="newUser.permissions.finanzas"> Finanzas
@@ -226,4 +222,7 @@
             </div>
         </div>
     </div>
+
+    <!-- Historial de Auditoría (Solo Super Admin) -->
+    <app-activity-logs></app-activity-logs>
 </div>

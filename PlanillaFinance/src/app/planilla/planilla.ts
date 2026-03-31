@@ -3,6 +3,8 @@ import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { API_URL, getAuthHeaders } from '../api-config';
+import { NotificationService } from '../shared/notification.service';
+import { AuditService } from '../shared/audit.service';
 import * as ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 
@@ -57,6 +59,11 @@ export class PlanillaComponent implements OnInit {
     // Modal Details
     showDetailModal: boolean = false;
     selectedEmployee: PayrollEmployee | null = null;
+
+    constructor(
+        private notification: NotificationService,
+        private audit: AuditService
+    ) {}
 
     ngOnInit() {
         this.currentMonth = new Date().toLocaleString('es-ES', { month: 'long' });
@@ -200,7 +207,7 @@ export class PlanillaComponent implements OnInit {
 
     async exportToExcel() {
         if (this.employees.length === 0) {
-            alert('No hay datos para exportar');
+            this.notification.warning('No hay datos para exportar');
             return;
         }
 
@@ -320,7 +327,7 @@ export class PlanillaComponent implements OnInit {
     }
 
     async savePlanilla() {
-        if (!confirm('¿Guardar la planilla del mes actual? Se guardará en el historial de pagos.')) return;
+        if (!await this.notification.confirm('¿Desea guardar la planilla del mes actual? Se registrará permanentemente en el historial de pagos.', 'Guardar Planilla')) return;
 
         const monthNames = [
             'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
@@ -367,19 +374,20 @@ export class PlanillaComponent implements OnInit {
             });
 
             if (response.ok) {
-                alert(`✅ Planilla de ${this.currentMonth} ${this.currentYear} guardada correctamente en el historial de pagos.`);
+                this.audit.log(`Guardó Planilla: ${this.currentMonth.toUpperCase()} ${this.currentYear}`, 'Planilla', `Periodo: ${periodo}`);
+                this.notification.success(`✅ Planilla de ${this.currentMonth} ${this.currentYear} guardada correctamente.`);
             } else {
                 const err = await response.json();
-                alert('❌ Error al guardar: ' + (err.error || 'Desconocido'));
+                this.notification.error('❌ Error al guardar: ' + (err.error || 'Desconocido'));
             }
         } catch (error) {
             console.error('Error guardando planilla:', error);
-            alert('❌ Error de conexión al guardar la planilla.');
+            this.notification.error('❌ Error de conexión al guardar la planilla.');
         }
     }
 
     async resetFields() {
-        if (!confirm('¿Limpiar todos los campos editables? Los bonos FIJOS se mantendrán.')) return;
+        if (!await this.notification.confirm('¿Desea limpiar todos los campos editables? Los bonos fijos configurados se mantendrán.', 'Reiniciar Planilla')) return;
 
         try {
             await fetch(API_URL + '/api/planilla-borrador', {
@@ -409,7 +417,8 @@ export class PlanillaComponent implements OnInit {
             this.calculateEmployee(emp, true);
         });
 
-        alert('✅ Campos limpiados. Los bonos fijos se mantuvieron.');
+        this.audit.log('Limpió campos editables de la planilla', 'Planilla');
+        this.notification.success('✅ Campos limpiados. Los bonos fijos se mantuvieron.');
     }
 
     // Modal Logic
@@ -506,6 +515,7 @@ export class PlanillaComponent implements OnInit {
             const total = this.additionalDetail.items.reduce((sum: number, item: any) => sum + item.monto, 0);
             emp.descuentoAdicional = total;
 
+            this.audit.log(`Actualizó descuentos adicionales para: ${emp.nombre} ${emp.apellidos}`, 'Planilla', `Nuevo total: S/ ${emp.descuentoAdicional}`);
             this.calculateEmployee(emp, true); // Calculate and Save
         }
         this.closeAdditionalModal();
@@ -584,6 +594,7 @@ export class PlanillaComponent implements OnInit {
 
             emp.bonos = validBonos.reduce((sum: number, b: any) => sum + (b.monto || 0), 0);
 
+            this.audit.log(`Actualizó bonos para: ${emp.nombre} ${emp.apellidos}`, 'Planilla', `Nuevo total: S/ ${emp.bonos}`);
             this.calculateEmployee(emp, true);
         }
         this.closeBonoModal();

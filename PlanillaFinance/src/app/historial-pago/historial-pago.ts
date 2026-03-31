@@ -2,6 +2,7 @@ import { ChangeDetectorRef, Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { API_URL, getAuthHeaders } from '../api-config';
+import { NotificationService } from '../shared/notification.service';
 
 @Component({
     selector: 'app-historial-pago',
@@ -20,7 +21,7 @@ export class HistorialPagoComponent {
     selectedYear: number = new Date().getFullYear();
     years: number[] = [];
 
-    constructor(private cdr: ChangeDetectorRef) {
+    constructor(private cdr: ChangeDetectorRef, private notification: NotificationService) {
         this.generateYears();
         this.loadPeriodos();
     }
@@ -77,7 +78,7 @@ export class HistorialPagoComponent {
             }
         } catch (error) {
             console.error('Error consultando:', error);
-            alert('Error de conexión.');
+            this.notification.error('Error de conexión al obtener el historial.');
         } finally {
             this.loading = false;
             this.cdr.detectChanges();

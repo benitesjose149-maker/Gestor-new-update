@@ -3,6 +3,8 @@ import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { API_URL, getAuthHeaders } from '../api-config';
+import { NotificationService } from '../shared/notification.service';
+import { AuditService } from '../shared/audit.service';
 
 interface Employee {
     _id?: string;
@@ -68,11 +70,6 @@ export class GestionEmpleadosComponent {
     leaveReason: string = '';
     selectedEmployeeForLeave: any = null;
 
-    // Notification modal
-    showNotification: boolean = false;
-    notificationMessage: string = '';
-    notificationSuccess: boolean = true;
-
     employees: Employee[] = [];
     filteredEmployees: Employee[] = [];
 
@@ -103,7 +100,10 @@ export class GestionEmpleadosComponent {
 
     availableDepartamentos: string[] = [];
 
-    constructor() {
+    constructor(
+        private notification: NotificationService,
+        private audit: AuditService
+    ) {
         this.loadEmployees();
     }
 
@@ -164,7 +164,7 @@ export class GestionEmpleadosComponent {
 
     async searchDni() {
         if (!this.newEmployee.dni || this.newEmployee.dni.length !== 8) {
-            alert('Por favor ingrese un DNI válido de 8 dígitos.');
+            this.notification.warning('Por favor ingrese un DNI válido de 8 dígitos.');
             return;
         }
         this.searchingDni = true;
@@ -183,7 +183,7 @@ export class GestionEmpleadosComponent {
             }
         } catch (error) {
             console.error('Error buscar DNI:', error);
-            alert('No se pudieron obtener los datos del DNI. Por favor ingrese manualmente.');
+            this.notification.error('No se pudieron obtener los datos de la RENIEC para este DNI.');
         } finally {
             this.searchingDni = false;
         }
@@ -220,7 +220,7 @@ export class GestionEmpleadosComponent {
         this.submitted = true;
         if (!isEditing) {
             if (!this.newEmployee.dni || !this.newEmployee.nombre || !this.newEmployee.apellidos || !this.newEmployee.telefono || !this.newEmployee.direccion || !this.newEmployee.fechaNacimiento || !this.newEmployee.cargo || !this.newEmployee.departamento) {
-                this.showNotif('Por favor complete todos los campos obligatorios en rojo.', false);
+                this.notification.warning('Por favor complete todos los campos obligatorios.');
                 return;
             }
         }
@@ -233,26 +233,24 @@ export class GestionEmpleadosComponent {
                 body: JSON.stringify(this.newEmployee)
             });
             if (response.ok) {
+                this.audit.log(
+                    `${isEditing ? 'Actualizó' : 'Registró'} empleado: ${this.newEmployee.nombre} ${this.newEmployee.apellidos}`,
+                    'Empleados',
+                    `DNI: ${this.newEmployee.dni}`
+                );
                 this.closeAddModal();
                 this.loadEmployees();
-                this.showNotif(`Empleado ${isEditing ? 'actualizado' : 'registrado'} exitosamente.`, true);
+                this.notification.success(`Empleado ${isEditing ? 'actualizado' : 'registrado'} exitosamente.`);
             } else {
                 const err = await response.json();
-                this.showNotif('Error: ' + (err.error || 'Desconocido'), false);
+                this.notification.error('Error: ' + (err.error || 'Desconocido'));
             }
         } catch (error) {
-            this.showNotif('Error de conexión.', false);
+            this.notification.error('Error de conexión con el servidor.');
         }
     }
 
-    showNotif(message: string, success: boolean) {
-        this.notificationMessage = message;
-        this.notificationSuccess = success;
-        this.showNotification = true;
-        setTimeout(() => this.showNotification = false, 2500);
-    }
-
-    closeNotification() { this.showNotification = false; }
+    closeNotification() { }
 
     viewEmployee(employee: any) {
         this.isViewOnly = true;
@@ -293,7 +291,7 @@ export class GestionEmpleadosComponent {
     async confirmLeave() {
         if (!this.selectedEmployeeForLeave) return;
         if (!this.leaveReason.trim()) {
-            alert('Por favor ingrese el motivo de la baja');
+            this.notification.warning('Por favor ingrese el motivo de la baja.');
             return;
         }
         try {
@@ -304,16 +302,21 @@ export class GestionEmpleadosComponent {
             });
             if (response.ok) {
                 const nombreEmpleado = this.selectedEmployeeForLeave.nombre;
+                this.audit.log(
+                    `Dio de baja a empleado: ${nombreEmpleado} ${this.selectedEmployeeForLeave.apellidos}`,
+                    'Empleados',
+                    `Motivo: ${this.leaveReason}`
+                );
                 this.closeLeaveModal();
                 this.loadEmployees();
-                this.showNotif(`Empleado ${nombreEmpleado} dado de baja y archivado.`, true);
+                this.notification.success(`Empleado ${nombreEmpleado} dado de baja y archivado.`);
             } else {
                 const errorData = await response.json().catch(() => ({ error: 'Error desconocido' }));
-                this.showNotif('Error: ' + (errorData.error || 'No se pudo procesar la baja'), false);
+                this.notification.error('Error: ' + (errorData.error || 'No se pudo procesar la baja'));
             }
         } catch (error) {
             console.error('Error de conexión:', error);
-            this.showNotif('Error de conexión con el servidor.', false);
+            this.notification.error('Error de conexión con el servidor.');
         }
     }
 }

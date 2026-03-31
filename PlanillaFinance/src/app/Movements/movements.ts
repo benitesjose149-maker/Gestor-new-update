@@ -2,6 +2,8 @@ import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { API_URL, getAuthHeaders } from '../api-config';
+import { NotificationService } from '../shared/notification.service';
+import { AuditService } from '../shared/audit.service';
 
 interface Movement {
     _id?: string; // actually subdoc id usually, but here we might need parent emp id + subdoc id logic
@@ -46,7 +48,10 @@ export class MovimientosComponent {
         observacion: ''
     };
 
-    constructor() {
+    constructor(
+        private notification: NotificationService,
+        private audit: AuditService
+    ) {
         this.loadData();
     }
 
@@ -252,7 +257,9 @@ export class MovimientosComponent {
             case 'PRESTAMO': endpoint = 'prestamos'; break;
             case 'MOVILIDAD': endpoint = 'movilidad'; break;
             case 'VIATICOS': endpoint = 'viaticos'; break;
-            default: alert('Tipo no soportado'); return;
+            default: 
+                this.notification.error('Tipo de movimiento no soportado');
+                return;
         }
 
         try {
@@ -263,19 +270,25 @@ export class MovimientosComponent {
             });
 
             if (response.ok) {
+                this.audit.log(
+                    `Registró ${this.newMovement.tipo.toLowerCase()}: ${emp ? emp.nombre : 'Desconocido'}`,
+                    'Movimientos',
+                    `Monto: S/ ${this.newMovement.monto} | Fecha: ${this.newMovement.fecha}`
+                );
+                this.notification.success('Movimiento registrado con éxito.');
                 this.closeModal();
                 this.loadData();
             } else {
-                alert('Error al guardar el movimiento');
+                this.notification.error('Error al guardar el movimiento');
             }
         } catch (error) {
             console.error('Error saving:', error);
-            alert('Error de conexión');
+            this.notification.error('Error de conexión');
         }
     }
 
     async deleteMovement(move: Movement) {
-        if (!confirm('¿Estás seguro de eliminar este movimiento?')) return;
+        if (!await this.notification.confirm(`¿Estás seguro de eliminar este ${move.tipo.toLowerCase()}?`, 'Confirmar Eliminación')) return;
 
         let endpoint = '';
         switch (move.tipo) {
@@ -293,12 +306,19 @@ export class MovimientosComponent {
             });
 
             if (response.ok) {
+                this.audit.log(
+                    `Eliminó ${move.tipo.toLowerCase()}: ${move.empleadoNombre}`,
+                    'Movimientos',
+                    `Monto anterior: S/ ${move.monto}`
+                );
+                this.notification.success('Movimiento eliminado correctamente.');
                 this.loadData();
             } else {
-                alert('Error al eliminar');
+                this.notification.error('No se pudo eliminar el movimiento.');
             }
         } catch (error) {
             console.error('Error deleting:', error);
+            this.notification.error('Error de conexión al eliminar.');
         }
     }
 }

@@ -2,6 +2,7 @@ import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { API_URL, getAuthHeaders } from '../api-config';
+import { NotificationService } from '../shared/notification.service';
 
 interface Employee {
     _id?: string;
@@ -92,7 +93,7 @@ export class ArchivedEmployeesComponent implements OnInit {
 
     availableDepartamentos: string[] = [];
 
-    constructor() { }
+    constructor(private notification: NotificationService) { }
 
     ngOnInit() {
         this.loadArchivedEmployees();
@@ -207,16 +208,16 @@ export class ArchivedEmployeesComponent implements OnInit {
             });
 
             if (response.ok) {
-                alert('Empleado re-contratado exitosamente.');
+                this.notification.success('Empleado re-contratado exitosamente.');
                 this.closeAddModal();
                 this.loadArchivedEmployees();
             } else {
                 const err = await response.json();
-                alert('Error al re-contratar: ' + (err.error || 'Desconocido'));
+                this.notification.error('Error al re-contratar: ' + (err.error || 'Desconocido'));
             }
         } catch (error) {
             console.error('Error rehiring:', error);
-            alert('Error de conexión.');
+            this.notification.error('Error de conexión.');
         }
     }
 
@@ -224,7 +225,7 @@ export class ArchivedEmployeesComponent implements OnInit {
         const id = employee.id || employee._id;
         const tabla = employee.tabla;
 
-        if (!confirm(`¿Está seguro de que desea eliminar permanentemente a ${employee.nombre} ${employee.apellidos}? Esta acción no se puede deshacer.`)) {
+        if (!await this.notification.confirm(`¿Está seguro de que desea eliminar permanentemente a ${employee.nombre} ${employee.apellidos}? Esta acción no se puede deshacer.`, 'Eliminar Permanentemente')) {
             return;
         }
 
@@ -235,15 +236,15 @@ export class ArchivedEmployeesComponent implements OnInit {
             });
 
             if (response.ok) {
-                alert('Empleado eliminado permanentemente.');
+                this.notification.success('Empleado eliminado permanentemente.');
                 this.loadArchivedEmployees();
             } else {
                 const err = await response.json();
-                alert('Error al eliminar: ' + (err.error || 'Desconocido'));
+                this.notification.error('Error al eliminar: ' + (err.error || 'Desconocido'));
             }
         } catch (error) {
             console.error('Error deleting:', error);
-            alert('Error de conexión.');
+            this.notification.error('Error de conexión.');
         }
     }
 }

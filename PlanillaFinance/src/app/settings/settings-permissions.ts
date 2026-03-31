@@ -2,26 +2,27 @@ import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { API_URL } from '../api-config';
+import { NotificationService } from '../shared/notification.service';
+import { AuditService } from '../shared/audit.service';
+import { ActivityLogsComponent } from '../shared/activity-logs.component';
 
 @Component({
     selector: 'app-settings-permissions',
     standalone: true,
-    imports: [CommonModule, FormsModule],
+    imports: [CommonModule, FormsModule, ActivityLogsComponent],
     templateUrl: './settings-permissions.html',
     styleUrl: './settings-permissions.css'
 })
 export class SettingsPermissionsComponent implements OnInit {
     users: any[] = [];
     blockedAccounts: any[] = [];
-    allowedIps: any[] = [];
     loading = true;
     creatingUser = false;
-    addingIp = false;
 
-    newIp = {
-        address: '',
-        label: ''
-    };
+    constructor(
+        private notification: NotificationService,
+        private audit: AuditService
+    ) {}
 
     newUser = {
         email: '',
@@ -33,22 +34,29 @@ export class SettingsPermissionsComponent implements OnInit {
             movimientos: false,
             finanzas: false,
             empleados: false,
-            archivados: false
+            archivados: false,
+            dashboard: true,
+            historial: false,
+            vacaciones: false,
+            asistencia: false
         }
     };
 
     async ngOnInit() {
         await Promise.all([
             this.loadUsers(),
-            this.loadBlockedAccounts(),
-            this.loadAllowedIps()
+            this.loadBlockedAccounts()
         ]);
     }
 
     async loadUsers() {
         try {
             const response = await fetch(`${API_URL}/api/admin/users`);
-            this.users = await response.json();
+            const data = await response.json();
+            this.users = Array.isArray(data) ? data : [];
+            if (!Array.isArray(data)) {
+                console.error('Expected users array but got:', data);
+            }
         } catch (error) {
             console.error('Error loading users:', error);
         } finally {
@@ -66,7 +74,7 @@ export class SettingsPermissionsComponent implements OnInit {
     }
 
     async unblockAccount(account: any) {
-        if (!confirm(`¿Está seguro de desbloquear el acceso para ${account.EMAIL}?`)) return;
+        if (!await this.notification.confirm(`¿Está seguro de desbloquear el acceso para ${account.EMAIL}?`, 'Desbloquear Cuenta')) return;
 
         try {
             const response = await fetch(`${API_URL}/api/admin/security/unblock`, {
@@ -76,14 +84,15 @@ export class SettingsPermissionsComponent implements OnInit {
             });
 
             if (response.ok) {
-                alert('Usuario desbloqueado con éxito.');
+                this.audit.log(`Desbloqueó cuenta: ${account.EMAIL}`, 'Configuración', `IP: ${account.IP_ADDRESS}`);
+                this.notification.success('Usuario desbloqueado con éxito.');
                 await this.loadBlockedAccounts();
             } else {
                 throw new Error('Failed to unblock');
             }
         } catch (error) {
             console.error('Error unblocking:', error);
-            alert('No se pudo desbloquear al usuario.');
+            this.notification.error('No se pudo desbloquear al usuario.');
         }
     }
 
@@ -102,7 +111,11 @@ export class SettingsPermissionsComponent implements OnInit {
                     can_movimientos: !!user.CAN_MOVIMIENTOS,
                     can_finanzas: !!user.CAN_FINANZAS,
                     can_empleados: !!user.CAN_EMPLEADOS,
-                    can_archivados: !!user.CAN_ARCHIVADOS
+                    can_archivados: !!user.CAN_ARCHIVADOS,
+                    can_dashboard: !!user.CAN_DASHBOARD,
+                    can_historial: !!user.CAN_HISTORIAL,
+                    can_vacaciones: !!user.CAN_VACACIONES,
+                    can_asistencia: !!user.CAN_ASISTENCIA
                 })
             });
 
@@ -115,13 +128,14 @@ export class SettingsPermissionsComponent implements OnInit {
                         sessionStorage.setItem('currentUser', JSON.stringify(currentUser));
                     }
                 }
+                this.audit.log(`Cambió nombre de usuario a: ${user.FULL_NAME}`, 'Configuración', `Email: ${user.EMAIL}`);
             } else {
                 throw new Error('Failed to update name');
             }
         } catch (error) {
             console.error('Error updating name:', error);
             user.FULL_NAME = originalName;
-            alert('No se pudo actualizar el nombre.');
+            this.notification.error('No se pudo actualizar el nombre.');
         }
     }
 
@@ -146,15 +160,20 @@ export class SettingsPermissionsComponent implements OnInit {
                     can_movimientos: !!user.CAN_MOVIMIENTOS,
                     can_finanzas: !!user.CAN_FINANZAS,
                     can_empleados: !!user.CAN_EMPLEADOS,
-                    can_archivados: !!user.CAN_ARCHIVADOS
+                    can_archivados: !!user.CAN_ARCHIVADOS,
+                    can_dashboard: !!user.CAN_DASHBOARD,
+                    can_historial: !!user.CAN_HISTORIAL,
+                    can_vacaciones: !!user.CAN_VACACIONES,
+                    can_asistencia: !!user.CAN_ASISTENCIA
                 })
             });
 
             if (!response.ok) throw new Error('Failed to update');
+            this.audit.log(`Modificó permisos para: ${user.EMAIL}`, 'Configuración');
         } catch (error) {
             console.error('Error updating permission:', error);
             user[permissionField] = originalValue;
-            alert('No se pudo actualizar el permiso.');
+            this.notification.error('No se pudo actualizar el permiso.');
         }
     }
     generatePassword() {
@@ -168,7 +187,7 @@ export class SettingsPermissionsComponent implements OnInit {
 
     async createUser() {
         if (!this.newUser.email || !this.newUser.password || !this.newUser.full_name) {
-            alert('Por favor, complete todos los campos obligatorios.');
+            this.notification.warning('Por favor, complete todos los campos obligatorios.');
             return;
         }
 
@@ -183,87 +202,53 @@ export class SettingsPermissionsComponent implements OnInit {
             const data = await response.json();
 
             if (response.ok && data.success) {
-                alert('Usuario creado con éxito.');
+                this.audit.log(`Creó nuevo usuario: ${this.newUser.email}`, 'Configuración', `Nombre: ${this.newUser.full_name}`);
+                this.notification.success('Usuario creado con éxito.');
                 this.resetNewUser();
                 await this.loadUsers();
             } else {
-                alert(data.message || 'Error al crear el usuario.');
+                this.notification.error(data.message || 'Error al crear el usuario.');
             }
         } catch (error) {
             console.error('Error creating user:', error);
-            alert('Error de conexión con el servidor.');
+            this.notification.error('Error de conexión con el servidor.');
         } finally {
             this.creatingUser = false;
         }
     }
 
-    async loadAllowedIps() {
-        try {
-            const response = await fetch(`${API_URL}/api/admin/ips`, {
-                headers: this.getAuthHeaders()
-            });
-            this.allowedIps = await response.json();
-        } catch (error) {
-            console.error('Error loading allowed IPs:', error);
+    async deleteUser(user: any) {
+        const currentUserData = sessionStorage.getItem('currentUser');
+        if (currentUserData) {
+            const currentUser = JSON.parse(currentUserData);
+            if (currentUser.email === user.EMAIL) {
+                this.notification.warning('No puedes eliminar tu propia cuenta por seguridad.');
+                return;
+            }
         }
-    }
 
-    async addAllowedIp() {
-        if (!this.newIp.address) {
-            alert('Ingrese una dirección IP.');
+        if (!await this.notification.confirm(`¿Estás seguro de que deseas eliminar permanentemente al usuario ${user.FULL_NAME} (${user.EMAIL})? Esta acción no se puede deshacer.`, 'Eliminar Administrador')) {
             return;
         }
-        this.addingIp = true;
-        try {
-            const response = await fetch(`${API_URL}/api/admin/ips`, {
-                method: 'POST',
-                headers: this.getAuthHeaders(),
-                body: JSON.stringify(this.newIp)
-            });
-
-            if (response.ok) {
-                this.newIp = { address: '', label: '' };
-                await this.loadAllowedIps();
-            } else {
-                const data = await response.json();
-                alert(data.message || 'Error al agregar IP.');
-            }
-        } catch (error) {
-            console.error('Error adding IP:', error);
-            alert('Error de conexión.');
-        } finally {
-            this.addingIp = false;
-        }
-    }
-
-    async deleteAllowedIp(id: number) {
-        if (!confirm('¿Desea eliminar esta IP de la lista blanca?')) return;
 
         try {
-            const response = await fetch(`${API_URL}/api/admin/ips/${id}`, {
+            const response = await fetch(`${API_URL}/api/admin/users/${user.ID_USERS}`, {
                 method: 'DELETE',
                 headers: this.getAuthHeaders()
             });
 
-            if (response.ok) {
-                await this.loadAllowedIps();
+            const data = await response.json();
+
+            if (response.ok && data.success) {
+                this.audit.log(`Eliminó al usuario: ${user.EMAIL}`, 'Configuración', `Nombre: ${user.FULL_NAME}`);
+                this.notification.success('Usuario eliminado correctamente.');
+                await this.loadUsers();
             } else {
-                alert('No se pudo eliminar la IP.');
+                this.notification.error(data.message || 'Error al eliminar el usuario.');
             }
         } catch (error) {
-            console.error('Error deleting IP:', error);
-        }
-    }
-
-    async detectMyIp() {
-        try {
-            const response = await fetch(`${API_URL}/api/debug-ip`);
-            const data = await response.json();
-            this.newIp.address = data.detectedIp.replace('::ffff:', '');
-            if (!this.newIp.label) this.newIp.label = 'Mi PC Actual';
-        } catch (error) {
-            console.error('Error detecting IP:', error);
-            alert('No se pudo detectar la IP automáticamente.');
+            console.error('Error deleting user:', error);
+            this.notification.error('Error de conexión con el servidor.');
         }
     }
 
@@ -286,7 +271,11 @@ export class SettingsPermissionsComponent implements OnInit {
                 movimientos: false,
                 finanzas: false,
                 empleados: false,
-                archivados: false
+                archivados: false,
+                dashboard: true,
+                historial: false,
+                vacaciones: false,
+                asistencia: false
             }
         };
     }
