@@ -1,9 +1,7 @@
-// Configuración centralizada de la API
 export const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-    ? 'http://15.235.16.229:3000' // Conecta al backend del servidor desde tu PC local
-    : ''; // Usa el mismo dominio (HTTPS) en producción
+    ? 'http://15.235.16.229:3000'
+    : '';
 
-// Función para obtener headers con la Llave Maestra
 export const getAuthHeaders = (extraHeaders = {}) => {
     const masterKey = localStorage.getItem('hwperu_master_key') || '';
     return {

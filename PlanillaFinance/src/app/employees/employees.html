@@ -324,13 +324,3 @@
         </div>
     </div>
 </div>
-
-<!-- Notification Modal -->
-<div class="notif-overlay" *ngIf="showNotification" (click)="closeNotification()">
-    <div class="notif-box" [class.notif-success]="notificationSuccess" [class.notif-error]="!notificationSuccess"
-        (click)="$event.stopPropagation()">
-        <div class="notif-icon">{{notificationSuccess ? '✅' : '❌'}}</div>
-        <div class="notif-message">{{notificationMessage}}</div>
-        <button class="notif-close" (click)="closeNotification()">&times;</button>
-    </div>
-</div>

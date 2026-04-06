@@ -2,14 +2,14 @@
 import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
-import { Router, RouterLink, ActivatedRoute } from '@angular/router';
+import { Router } from '@angular/router';
 import { API_URL } from '../api-config';
 import { AuthService } from '../auth/auth.service';
 
 @Component({
     selector: 'app-login',
     standalone: true,
-    imports: [CommonModule, ReactiveFormsModule, RouterLink],
+    imports: [CommonModule, ReactiveFormsModule],
     templateUrl: './login.html',
     styleUrl: './login.css'
 })
@@ -21,7 +21,6 @@ export class LoginComponent {
     constructor(
         private fb: FormBuilder,
         private router: Router,
-        private route: ActivatedRoute,
         private authService: AuthService
     ) {
         if (this.authService.isLoggedIn()) {
@@ -34,12 +33,7 @@ export class LoginComponent {
             rememberMe: [false]
         });
 
-        this.route.queryParams.subscribe(params => {
-            if (params['key']) {
-                localStorage.setItem('hwperu_master_key', params['key']);
-                console.log('Master Key detectada y guardada.');
-            }
-        });
+
 
         const savedEmail = localStorage.getItem('rememberedEmail');
         const savedPassword = localStorage.getItem('rememberedPassword');
@@ -65,27 +59,18 @@ export class LoginComponent {
             this.errorMessage = null;
             const { email, password } = this.loginForm.value;
             try {
-                const masterKey = localStorage.getItem('hwperu_master_key') || '';
                 const response = await fetch(`${API_URL}/api/login`, {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json',
-                        'x-hwperu-key': masterKey
+                        'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({ email, password })
                 });
 
                 const data = await response.json();
 
-                if (response.status === 403 && (data.message === 'MASTER_KEY_REQUIRED' || data.message === 'ACCESO_DENEGADO_IP_RESTRINGIDA')) {
-                    this.errorMessage = data.details || `Acceso no permitido: Su IP no está autorizada. Este intento está siendo monitoreado.`;
-                } else if (response.ok && data.success) {
+                if (response.ok && data.success) {
                     console.log('Login successful');
-
-                    if (data.masterKey) {
-                        localStorage.setItem('hwperu_master_key', data.masterKey);
-                        console.log('Master Key autorizada automáticamente por el servidor.');
-                    }
                     const { email, password, rememberMe } = this.loginForm.value;
                     if (rememberMe) {
                         localStorage.setItem('rememberedEmail', email);

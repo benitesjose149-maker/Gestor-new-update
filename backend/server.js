@@ -7,7 +7,7 @@ import { poolPlanilla, poolFinance } from './config/dbSql.js';
 import mssql from 'mssql';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { ipFilter, ALLOWED_IPS } from './utils/ipFilter.js';
+
 import dniRoutes from './routes/dniRoutes.js';
 import gmailRoutes from './integrations/gmailRoutes.js';
 import demoRoutes from './routes/endpoint-demo-test.js';
@@ -17,19 +17,7 @@ app.set('trust proxy', true);
 
 console.log('[DEBUG] Backend starting initialization...');
 
-app.get('/api/debug-ip-view', (req, res) => {
-    const forwarded = req.headers['x-forwarded-for'];
-    const remoteAddr = req.socket.remoteAddress;
-    const expressIp = req.ip;
 
-    res.json({
-        expressIp,
-        forwarded,
-        remoteAddr,
-        headers: req.headers,
-        detectedCleanIp: (expressIp || (typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : forwarded) || remoteAddr).replace('::ffff:', '')
-    });
-});
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -49,7 +37,7 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 
-const port = 3005;
+const port = process.env.PORT || 3005;
 
 app.use(express.json());
 
@@ -58,20 +46,13 @@ app.use((req, res, next) => {
     next();
 });
 
-app.use(ipFilter);
+
 
 const distPath = path.join(__dirname, 'public');
 app.use(express.static(distPath));
 
 
-app.get('/api/debug-ip', (req, res) => {
-    const clientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress;
-    res.json({
-        detectedIp: clientIp,
-        forwardedFor: req.headers['x-forwarded-for'],
-        remoteAddress: req.socket.remoteAddress
-    });
-});
+
 
 app.use('/api/reniec', dniRoutes);
 app.use('/api', gmailRoutes);
@@ -204,33 +185,6 @@ app.post('/api/login', async (req, res) => {
 
         if (success) {
             const user = result.recordset[0];
-            const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-            const cleanIp = ip.replace('::ffff:', '');
-
-            let isWhitelisted = ALLOWED_IPS.includes(cleanIp) || ALLOWED_IPS.includes(ip);
-
-            if (!isWhitelisted) {
-                const dbIpCheck = await pool.request()
-                    .input('ip', mssql.VarChar, cleanIp)
-                    .query('SELECT TOP 1 ID FROM ALLOWED_IPS_WHITELIST WHERE IP_ADDRESS = @ip');
-
-                if (dbIpCheck.recordset.length > 0) {
-                    isWhitelisted = true;
-                }
-            }
-
-            let masterKeyForSession = null;
-            if (!isWhitelisted) {
-                if (user.ROL === 'SUPER_ADMIN') {
-                    masterKeyForSession = 'hw-peru-2025-seguro';
-                } else {
-                    return res.status(403).json({
-                        success: false,
-                        message: 'ACCESO_DENEGADO_IP_RESTRINGIDA',
-                        details: 'Acceso no permitido: Su IP no está autorizada para este usuario.'
-                    });
-                }
-            }
 
             await pool.request()
                 .input('email', mssql.VarChar, email)
@@ -252,7 +206,6 @@ app.post('/api/login', async (req, res) => {
             res.json({
                 success: true,
                 message: 'Login exitoso',
-                masterKey: masterKeyForSession,
                 user: {
                     email: user.EMAIL,
                     fullName: user.FULL_NAME,
@@ -2330,9 +2283,9 @@ app.listen(port, () => {
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-    console.error('UNHANDLED_REJECTION:', reason);
-    // Optionally log stack trace if available
+    console.error('UNHANDLED_REJECTION (non-fatal):', reason);
     if (reason && reason.stack) console.error(reason.stack);
+    // No hacemos process.exit — el servidor sigue vivo aunque falle la DB al inicio
 });
 
 process.on('uncaughtException', (err) => {

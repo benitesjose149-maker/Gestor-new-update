@@ -8,7 +8,9 @@ export const ALLOWED_IPS = [
     '::1',
     '::ffff:127.0.0.1',
     '15.235.16.229',
-    '::ffff:15.235.16.229'
+    '::ffff:15.235.16.229',
+    '179.6.7.253',            // PC local autorizada - 01/04/2026
+    '::ffff:179.6.7.253'
 ];
 
 export const ipFilter = async (req, res, next) => {
