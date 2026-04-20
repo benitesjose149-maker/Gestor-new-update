@@ -239,8 +239,29 @@
                                 [disabled]="isViewOnly" class="form-control">
                         </div>
                         <div class="form-group">
-                            <label>Horario</label>
+                            <label>Régimen Laboral</label>
                             <input type="text" [(ngModel)]="newEmployee.horarioTrabajo" name="horarioTrabajo"
+                                [disabled]="isViewOnly" class="form-control" placeholder="Ej: Full Time">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h3 class="section-title">Configuración de Asistencia (Biométrico)</h3>
+                    <div class="form-row three-col">
+                        <div class="form-group">
+                            <label>ID Biométrico (Máquina)</label>
+                            <input type="number" [(ngModel)]="newEmployee.biometricId" name="biometricId"
+                                [disabled]="isViewOnly" class="form-control" placeholder="Ej: 15">
+                        </div>
+                        <div class="form-group">
+                            <label>Hora Entrada (Puntualidad)</label>
+                            <input type="time" [(ngModel)]="newEmployee.entryTime" name="entryTime"
+                                [disabled]="isViewOnly" class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label>Hora Salida</label>
+                            <input type="time" [(ngModel)]="newEmployee.exitTime" name="exitTime"
                                 [disabled]="isViewOnly" class="form-control">
                         </div>
                     </div>

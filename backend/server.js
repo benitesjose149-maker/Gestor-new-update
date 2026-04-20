@@ -8,6 +8,7 @@ import mssql from 'mssql';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+import http from 'http';
 import dniRoutes from './routes/dniRoutes.js';
 import gmailRoutes from './integrations/gmailRoutes.js';
 import demoRoutes from './routes/endpoint-demo-test.js';
@@ -24,10 +25,15 @@ const __dirname = path.dirname(__filename);
 
 const corsOptions = {
     origin: (origin, callback) => {
-        const allowedOrigins = process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : [];
-        if (!origin || allowedOrigins.includes(origin) || origin.includes('localhost') || origin.includes('127.0.0.1')) {
+        const allowedOrigins = process.env.CORS_ORIGIN 
+            ? process.env.CORS_ORIGIN.split(',').map(o => o.trim()) 
+            : [];
+        const isLocalhost = origin && (origin.includes('localhost') || origin.includes('127.0.0.1'));
+        
+        if (!origin || allowedOrigins.includes(origin) || isLocalhost) {
             callback(null, true);
         } else {
+            console.warn(`[CORS] Rejected origin: "${origin}". Allowed core:`, allowedOrigins);
             callback(null, true);
         }
     },
@@ -40,6 +46,14 @@ app.use(cors(corsOptions));
 const port = process.env.PORT || 3005;
 
 app.use(express.json());
+
+app.use('/iclock', express.text({ type: '*/*', limit: '10mb' }));
+app.use('/iclock', (req, res, next) => {
+    if (req.method === 'POST') {
+        console.log(`[ADMS] POST ${req.originalUrl} - Body length: ${req.body?.length || 0}`);
+    }
+    next();
+});
 
 app.use((req, res, next) => {
     console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl} - IP: ${req.ip}`);
@@ -113,7 +127,6 @@ app.get('/api/dashboard/stats', async (req, res) => {
             vencimiento: inv.Fecha ? new Date(inv.Fecha).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A'
         }));
 
-        // Caja Virtual pendientes (solo mes actual)
         const cajaVirtualRes = await financePool.request()
             .input('cvMonth', mssql.Int, currentMonth)
             .input('cvYear', mssql.Int, now.getFullYear())
@@ -187,7 +200,6 @@ app.post('/api/login', async (req, res) => {
             });
         }
 
-        // Safety migration: Ensure all columns exist before selecting
         await pool.request().query(`
             IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('USERS') AND name = 'CAN_DASHBOARD')
             ALTER TABLE USERS ADD CAN_DASHBOARD BIT DEFAULT 1;
@@ -254,13 +266,11 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// Nuevo endpoint para obtener el perfil y los permisos actuales de un usuario (para refresco automático)
 app.get('/api/auth/me/:email', async (req, res) => {
     try {
         const { email } = req.params;
         const pool = await poolPlanilla;
 
-        // Safety migration: Ensure all columns exist before selecting
         await pool.request().query(`
             IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('USERS') AND name = 'CAN_DASHBOARD')
             ALTER TABLE USERS ADD CAN_DASHBOARD BIT DEFAULT 1;
@@ -389,7 +399,6 @@ app.get('/api/admin/users', async (req, res) => {
     try {
         const pool = await poolPlanilla;
 
-        // Safety migration: Ensure all columns exist before selecting
         await pool.request().query(`
             IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('USERS') AND name = 'CAN_DASHBOARD')
             ALTER TABLE USERS ADD CAN_DASHBOARD BIT DEFAULT 1;
@@ -492,13 +501,11 @@ app.post('/api/admin/create-user', async (req, res) => {
     }
 });
 
-// ACTIVITY LOGS ENDPOINTS
 app.post('/api/admin/logs', async (req, res) => {
     try {
         const { user, action, module, details } = req.body;
         const pool = await poolPlanilla;
 
-        // Auto-create table if not exists (Lazy Load)
         await pool.request().query(`
             IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='ACTIVITY_LOGS' AND xtype='U')
             BEGIN
@@ -574,6 +581,9 @@ app.get('/api/empleados', async (req, res) => {
             numeroCuenta: emp.NUMERO_CUENTA,
             cci: emp.CCI,
             email: emp.CORREO,
+            biometricId: emp.BIOMETRIC_ID,
+            entryTime: emp.ENTRY_TIME,
+            exitTime: emp.EXIT_TIME,
             estado: 'Activo'
         }));
         res.json(empleados);
@@ -731,6 +741,9 @@ app.post('/api/empleados', async (req, res) => {
         request.input('tipoCta', mssql.VarChar(50), data.tipoCuenta || null);
         request.input('numCta', mssql.VarChar(50), data.numeroCuenta || null);
         request.input('cci', mssql.VarChar(50), data.cci || null);
+        request.input('biometricId', mssql.Int, data.biometricId || null);
+        request.input('entryTime', mssql.VarChar(10), data.entryTime || null);
+        request.input('exitTime', mssql.VarChar(10), data.exitTime || null);
         request.input('activo', mssql.Bit, 1);
 
         const query = `
@@ -739,13 +752,13 @@ app.post('/api/empleados', async (req, res) => {
                 NUMERO_EMERGENCIA, FECHA_NACIMIENTO, DIRECCION, CARGO, DEPARTAMENTO, 
                 TIPO_TRABAJADOR, SUELDO_BASE, ENTIDAD_PREVISIONAL, DESCUENTO_AFP_MINIMO,
                 JORNADA_LABORAL, FECHA_INGRESO, FECHA_FIN_CONTRATO, CORREO, BANCO, 
-                TIPO_CUENTA, NUMERO_CUENTA, CCI, ACTIVO
+                TIPO_CUENTA, NUMERO_CUENTA, CCI, BIOMETRIC_ID, ENTRY_TIME, EXIT_TIME, ACTIVO
             )
             OUTPUT INSERTED.*
             VALUES (
                 @nombre, @apellidos, @dni, @genero, @nac, @tel, @nomCont, 
                 @numEmerg, @fechaNac, @dir, @cargo, @dept, @tipo, @sueldo, @entPrevis,
-                @descAfpMin, @jorLab, @fechaIng, @fechaFin, @correo, @banco, @tipoCta, @numCta, @cci, @activo
+                @descAfpMin, @jorLab, @fechaIng, @fechaFin, @correo, @banco, @tipoCta, @numCta, @cci, @biometricId, @entryTime, @exitTime, @activo
             )
         `;
 
@@ -797,6 +810,9 @@ app.put('/api/empleados/:id', async (req, res) => {
         request.input('tipoCta', mssql.VarChar(50), data.tipoCuenta || null);
         request.input('numCta', mssql.VarChar(50), data.numeroCuenta || null);
         request.input('cci', mssql.VarChar(50), data.cci || null);
+        request.input('biometricId', mssql.Int, data.biometricId || null);
+        request.input('entryTime', mssql.VarChar(10), data.entryTime || null);
+        request.input('exitTime', mssql.VarChar(10), data.exitTime || null);
 
         await request.query(`
             UPDATE EMPLOYEES 
@@ -808,7 +824,8 @@ app.put('/api/empleados/:id', async (req, res) => {
                 DESCUENTO_AFP_MINIMO = @descAfpMin, JORNADA_LABORAL = @jorLab,
                 FECHA_INGRESO = @fechaIng, FECHA_FIN_CONTRATO = @fechaFin, 
                 CORREO = @correo, BANCO = @banco, TIPO_CUENTA = @tipoCta, 
-                NUMERO_CUENTA = @numCta, CCI = @cci
+                NUMERO_CUENTA = @numCta, CCI = @cci,
+                BIOMETRIC_ID = @biometricId, ENTRY_TIME = @entryTime, EXIT_TIME = @exitTime
             WHERE ID_EMPLOYEE = @id
         `);
         res.json({ message: 'Empleado actualizado correctamente' });
@@ -1117,12 +1134,13 @@ app.post('/api/adelantos', async (req, res) => {
         request.input('nombre', mssql.NVarChar, data.nombreEmpleado);
         request.input('cargo', mssql.NVarChar, data.cargo);
         request.input('dep', mssql.NVarChar, data.departamento);
+        request.input('createdAt', mssql.DateTime, now);
         request.input('mes', mssql.VarChar, (now.getMonth() + 1).toString().padStart(2, '0'));
         request.input('anio', mssql.Int, now.getFullYear());
 
         await request.query(`
             INSERT INTO ADVANCES (EmpleadoNumId, Monto, Observaciones, Estado, Tipo, NombreEmpleado, Cargo, Departamento, CreatedAt, Mes, Anio)
-            VALUES (@dni, @monto, @obs, @estado, @tipo, @nombre, @cargo, @dep, GETDATE(), @mes, @anio)
+            VALUES (@dni, @monto, @obs, @estado, @tipo, @nombre, @cargo, @dep, @createdAt, @mes, @anio)
         `);
         res.status(201).json({ message: 'Movimiento guardado' });
     } catch (error) {
@@ -1215,10 +1233,11 @@ app.post('/api/prestamos', async (req, res) => {
             request.input('esCuota', mssql.Bit, cuotas > 1 ? 1 : 0);
             request.input('numAdelanto', mssql.Int, i);
             request.input('totalCuotas', mssql.Int, cuotas);
+            request.input('createdAt', mssql.DateTime, installmentDate);
 
             await request.query(`
                 INSERT INTO ADVANCES (EmpleadoNumId, Monto, Observaciones, Estado, Tipo, NombreEmpleado, Cargo, Departamento, CreatedAt, Mes, Anio, EsPrestamo, EsCuota, NumeroAdelanto, TotalCuotas)
-                VALUES (@dni, @monto, @obs, @estado, 'PRESTAMO', @nombre, @cargo, @dep, GETDATE(), @mes, @anio, @esPrestamo, @esCuota, @numAdelanto, @totalCuotas)
+                VALUES (@dni, @monto, @obs, @estado, 'PRESTAMO', @nombre, @cargo, @dep, @createdAt, @mes, @anio, @esPrestamo, @esCuota, @numAdelanto, @totalCuotas)
             `);
         }
         res.status(201).json({ message: `Prestamo guardado en ${cuotas} cuota(s)` });
@@ -1323,10 +1342,11 @@ app.post('/api/movilidad', async (req, res) => {
         request.input('dep', mssql.NVarChar, data.departamento);
         request.input('mes', mssql.VarChar, (now.getMonth() + 1).toString().padStart(2, '0'));
         request.input('anio', mssql.Int, now.getFullYear());
+        request.input('createdAt', mssql.DateTime, now);
 
         await request.query(`
             INSERT INTO ADVANCES (EmpleadoNumId, Monto, Observaciones, Estado, Tipo, NombreEmpleado, Cargo, Departamento, CreatedAt, Mes, Anio)
-            VALUES (@dni, @monto, @obs, @estado, 'MOVILIDAD', @nombre, @cargo, @dep, GETDATE(), @mes, @anio)
+            VALUES (@dni, @monto, @obs, @estado, 'MOVILIDAD', @nombre, @cargo, @dep, @createdAt, @mes, @anio)
         `);
         res.status(201).json({ message: 'Movilidad guardada' });
     } catch (error) {
@@ -1400,10 +1420,11 @@ app.post('/api/viaticos', async (req, res) => {
         request.input('dep', mssql.NVarChar, data.departamento);
         request.input('mes', mssql.VarChar, (now.getMonth() + 1).toString().padStart(2, '0'));
         request.input('anio', mssql.Int, now.getFullYear());
+        request.input('createdAt', mssql.DateTime, now);
 
         await request.query(`
             INSERT INTO ADVANCES (EmpleadoNumId, Monto, Observaciones, Estado, Tipo, NombreEmpleado, Cargo, Departamento, CreatedAt, Mes, Anio)
-            VALUES (@dni, @monto, @obs, @estado, 'VIATICO', @nombre, @cargo, @dep, GETDATE(), @mes, @anio)
+            VALUES (@dni, @monto, @obs, @estado, 'VIATICO', @nombre, @cargo, @dep, @createdAt, @mes, @anio)
         `);
         res.status(201).json({ message: 'Viatico guardado' });
     } catch (error) {
@@ -1768,7 +1789,6 @@ export async function syncWhmcsInvoices() {
                     const request = pool.request();
                     request.input('whmcsId', mssql.Int, invId);
 
-                    // Recomedación técnica: Usar la fecha de pago (transacción) para el reporte financiero
                     const paymentDate = (invoiceTxsInPeriod.length > 0) ? invoiceTxsInPeriod[0].date : invBase.date;
                     request.input('fecha', mssql.Date, paymentDate);
                     request.input('cliente', mssql.NVarChar(255), clienteConcepto);
@@ -2370,6 +2390,84 @@ app.get('*', (req, res) => {
     }
 });
 
+app.get('/iclock/cdata', (req, res) => {
+    console.log(`[ADMS] Init check from device: ${req.query.SN}`);
+    res.send('OK');
+});
+
+app.post('/iclock/cdata', async (req, res) => {
+    const { SN, table } = req.query;
+    if (table !== 'ATTLOG') return res.send('OK');
+
+    try {
+        const pool = await poolPlanilla;
+        const lines = req.body.split('\n');
+
+        for (let line of lines) {
+            if (!line.trim()) continue;
+
+            const parts = line.split('\t');
+            const data = {};
+            parts.forEach(p => {
+                const [k, v] = p.split('=');
+                if (k && v) data[k.trim().toUpperCase()] = v.trim();
+            });
+
+            if (data.USERID && data.CHECKTIME) {
+                await pool.request()
+                    .input('sn', mssql.NVarChar, SN)
+                    .input('userid', mssql.Int, parseInt(data.USERID))
+                    .input('checktime', mssql.DateTime, new Date(data.CHECKTIME))
+                    .input('type', mssql.Int, parseInt(data.CHECKTYPE) || 0)
+                    .query(`
+                        INSERT INTO ATTENDANCE_LOGS (SN, USERID, CHECKTIME, CHECKTYPE)
+                        VALUES (@sn, @userid, @checktime, @type)
+                    `);
+                console.log(`[ADMS] Log saved for USERID: ${data.USERID} at ${data.CHECKTIME}`);
+            }
+        }
+        res.send('OK');
+    } catch (error) {
+        console.error('[ADMS] Error saving logs:', error);
+        res.status(500).send('ERROR');
+    }
+});
+
+app.get('/iclock/getrequest', (req, res) => {
+    res.send('OK');
+});
+
+app.post('/iclock/devicecmd', (req, res) => {
+    res.send('OK');
+});
+
+app.get('/api/attendance/logs', async (req, res) => {
+    try {
+        const pool = await poolPlanilla;
+        const { date } = req.query;
+        let query = `
+            SELECT l.*, e.NOMBRE, e.APELLIDOS, e.CARGO, e.DEPARTAMENTO, e.ENTRY_TIME, e.EXIT_TIME, e.JORNADA_LABORAL
+            FROM ATTENDANCE_LOGS l
+            LEFT JOIN EMPLOYEES e ON l.USERID = e.BIOMETRIC_ID
+        `;
+
+        if (date) {
+            query += ` WHERE CAST(l.CHECKTIME AS DATE) = '${date}'`;
+        }
+
+        const result = await pool.request().query(query + ' ORDER BY l.CHECKTIME DESC');
+        res.json(result.recordset);
+    } catch (error) {
+        console.error('Error fetching attendance logs:', error);
+        res.status(500).json({ error: 'Error al obtener registros de asistencia' });
+    }
+});
+const admsPort = 8081;
+const admsServer = http.createServer(app);
+admsServer.listen(admsPort, '0.0.0.0', () => {
+    console.log(`[ADMS] Receptor running on port ${admsPort}`);
+});
+
 app.use((err, req, res, next) => {
     console.error('SERVER_ERROR:', err);
     res.status(500).json({ success: false, error: 'Error interno del servidor' });
@@ -2386,7 +2484,6 @@ app.listen(port, () => {
 process.on('unhandledRejection', (reason, promise) => {
     console.error('UNHANDLED_REJECTION (non-fatal):', reason);
     if (reason && reason.stack) console.error(reason.stack);
-    // No hacemos process.exit — el servidor sigue vivo aunque falle la DB al inicio
 });
 
 process.on('uncaughtException', (err) => {

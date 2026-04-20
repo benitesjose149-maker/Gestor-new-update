@@ -1,6 +1,7 @@
 import { Component, OnInit } from "@angular/core";
 import { CommonModule } from "@angular/common";
 import { FormsModule } from "@angular/forms";
+import { API_URL, getAuthHeaders } from '../api-config';
 
 @Component({
     selector: 'app-attendance',
@@ -17,68 +18,8 @@ export class AttendanceComponent implements OnInit {
     lateToday: number = 0;
     absentToday: number = 0;
     searchText: string = '';
-    mockAttendanceData = [
-        {
-            id: 1,
-            name: 'Jose Benites',
-            role: 'Desarrollador Senior',
-            department: 'Tecnología',
-            clockIn: '08:30 AM',
-            clockOut: '06:00 PM',
-            totalHours: '',
-            status: 'Puntual',
-            shift: '09:00 - 18:00',
-            observation: ''
-        },
-        {
-            id: 2,
-            name: 'Marcos VillaLobo',
-            role: 'Especialista en Mkt',
-            department: 'Marketing',
-            clockIn: '09:15 AM',
-            clockOut: '06:00 PM',
-            totalHours: '',
-            status: 'Tarde',
-            shift: '09:00 - 18:00',
-            observation: ''
-        },
-        {
-            id: 3,
-            name: 'Carlos Bramont',
-            role: 'Ejecutivo de Cuentas',
-            department: 'Ventas',
-            clockIn: '08:58 AM',
-            clockOut: '05:30 PM',
-            totalHours: '',
-            status: 'Puntual',
-            shift: '09:00 - 18:00',
-            observation: ''
-        },
-        {
-            id: 4,
-            name: 'María Fernandez',
-            role: 'Gestora Financiera',
-            department: 'Administración',
-            clockIn: '-- : --',
-            clockOut: '-- : --',
-            totalHours: '',
-            status: 'Falta',
-            shift: '09:00 - 18:00',
-            observation: ''
-        },
-        {
-            id: 5,
-            name: 'Luis Suarez',
-            role: 'Soporte Técnico',
-            department: 'Tecnología',
-            clockIn: '09:01 AM',
-            clockOut: '06:15 PM',
-            totalHours: '',
-            status: 'Puntual',
-            shift: '09:00 - 18:00',
-            observation: ''
-        }
-    ];
+    attendanceData: any[] = [];
+    employees: any[] = [];
 
     displayedData: any[] = [];
 
@@ -100,15 +41,107 @@ export class AttendanceComponent implements OnInit {
     constructor() { }
 
     ngOnInit() {
-
-        this.mockAttendanceData = this.mockAttendanceData.map(emp => ({
-            ...emp,
-            totalHours: this.calculateWorkedHours(emp.clockIn, emp.clockOut)
-        }));
-
-        this.calculateStats(this.mockAttendanceData);
-        this.displayedData = [...this.mockAttendanceData];
+        this.loadRealAttendance();
     }
+
+    async loadRealAttendance() {
+        try {
+            console.log('%c[Attendance] 📡 Iniciando carga de datos...', 'color: #00bcd4; font-weight: bold;');
+            const todayStr = new Date().toISOString().split('T')[0];
+
+            // Pasamos a peticiones secuenciales para ver exactamente cuál falla
+            console.log('[Attendance] Solicitando empleados...');
+            const empRes = await fetch(`${API_URL}/api/empleados`, { headers: getAuthHeaders() });
+            console.log('[Attendance] Empleados Status:', empRes.status);
+            
+            if (empRes.ok) {
+                this.employees = await empRes.json();
+                console.log(`%c[Attendance] ✅ ${this.employees.length} empleados cargados`, 'color: #4caf50;');
+            } else {
+                const errText = await empRes.text();
+                console.error('[Attendance] ❌ Error en empleados:', empRes.status, errText);
+            }
+
+            console.log('[Attendance] Solicitando marcas del biométrico...');
+            const logsRes = await fetch(`${API_URL}/api/attendance/logs?date=${todayStr}`, { headers: getAuthHeaders() });
+            console.log('[Attendance] Marcas Status:', logsRes.status);
+
+            const logs = logsRes.ok ? await logsRes.json() : [];
+            console.log(`[Attendance] 📊 ${logs.length} marcas encontradas para hoy`);
+
+            this.processRealLogs(logs);
+        } catch (error) {
+            console.error('%c[Attendance] 🚨 ERROR CRÍTICO:', 'color: white; background: red; padding: 5px;', error);
+        }
+    }
+
+    processRealLogs(logs: any[]) {
+        const attendanceMap = new Map<number, any>();
+
+        // Initialize everyone as 'Falta' based on active employees
+        this.employees.forEach(emp => {
+            const key = emp.biometricId !== null && emp.biometricId !== undefined ? emp.biometricId : emp.id;
+            attendanceMap.set(key, {
+                id: emp.id,
+                name: `${emp.nombre} ${emp.apellidos}`,
+                role: emp.cargo || 'Personal',
+                department: emp.departamento || '-',
+                clockIn: '-- : --',
+                clockOut: '-- : --',
+                status: 'Falta',
+                shift: `${emp.entryTime || '09:00'} - ${emp.exitTime || '18:00'}`,
+                observation: '',
+                rawEntry: null,
+                rawExit: null,
+                expectedEntry: emp.entryTime || '09:00'
+            });
+        });
+
+        logs.forEach(log => {
+            const userId = log.USERID;
+            if (attendanceMap.has(userId)) {
+                const emp = attendanceMap.get(userId);
+                const checkTime = new Date(log.CHECKTIME);
+                const timeStr = checkTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+
+                if (log.CHECKTYPE === 0 || !emp.rawEntry) {
+                    if (!emp.rawEntry || checkTime < emp.rawEntry) {
+                        emp.rawEntry = checkTime;
+                        emp.clockIn = timeStr;
+                    }
+                }
+                if (log.CHECKTYPE === 1 || !emp.rawExit) {
+                    if (!emp.rawExit || checkTime > emp.rawExit) {
+                        emp.rawExit = checkTime;
+                        emp.clockOut = timeStr;
+                    }
+                }
+            }
+        });
+
+        const finalData = Array.from(attendanceMap.values()).map(emp => {
+            if (emp.rawEntry) {
+                // Determine status
+                const [expH, expM] = emp.expectedEntry.split(':').map(Number);
+                const entryH = emp.rawEntry.getHours();
+                const entryM = emp.rawEntry.getMinutes();
+
+                if (entryH < expH || (entryH === expH && entryM <= expM + 10)) {
+                    emp.status = 'Puntual';
+                } else {
+                    emp.status = 'Tarde';
+                }
+            }
+            emp.totalHours = this.calculateWorkedHours(emp.clockIn, emp.clockOut);
+            return emp;
+        });
+
+        this.attendanceData = finalData;
+        this.calculateStats(this.attendanceData);
+        this.filterData();
+    }
+
+
 
     convertToMinutes(time: string): number {
         if (time === '-- : --') return 0;
@@ -145,7 +178,7 @@ export class AttendanceComponent implements OnInit {
 
     openEmployeeModal(emp: any) {
         this.selectedEmployee = emp;
-        this.selectedEmployeeHistory = this.generateMonthlyHistory(emp);
+        this.selectedEmployeeHistory = []; // Estará disponible cuando se implemente la API de historial
         this.isModalOpen = true;
     }
 
@@ -168,12 +201,11 @@ export class AttendanceComponent implements OnInit {
 
     submitJustification() {
         if (this.selectedEmployeeForJustify) {
-            const emp = this.mockAttendanceData.find(e => e.id === this.selectedEmployeeForJustify.id);
+            const emp = this.attendanceData.find(e => e.id === this.selectedEmployeeForJustify.id);
             if (emp) emp.status = 'Justificado';
 
-            console.log('Justificación procesada para:', this.selectedEmployeeForJustify.name);
             this.closeJustifyModal();
-            this.calculateStats(this.mockAttendanceData);
+            this.calculateStats(this.attendanceData);
             this.filterData();
         }
     }
@@ -211,85 +243,15 @@ export class AttendanceComponent implements OnInit {
 
     saveObservation() {
         if (this.selectedEmployeeForObservation) {
-            const emp = this.mockAttendanceData.find(e => e.id === this.selectedEmployeeForObservation.id);
+            const emp = this.attendanceData.find(e => e.id === this.selectedEmployeeForObservation.id);
             if (emp) {
                 emp.observation = this.observationText;
             }
-            console.log('Observación guardada.');
             this.closeObservationModal();
         }
     }
 
-    generateMonthlyHistory(emp: any): any[] {
-        const history = [];
-        const now = new Date();
-        const year = now.getFullYear();
-        const month = now.getMonth();
-        const currentDate = now.getDate();
 
-        const feriadosPeru = [
-            '0-1', '3-2', '3-3', '4-1', '5-29',
-            '6-28', '6-29', '7-30', '9-8',
-            '10-1', '11-8', '11-25'
-        ];
-
-        for (let day = 1; day <= currentDate; day++) {
-            const dateOfRecord = new Date(year, month, day);
-            const dayOfWeek = dateOfRecord.getDay();
-
-            const isFeriado = feriadosPeru.includes(`${month}-${day}`);
-            const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-
-            let dayStatus = 'Puntual';
-            let clockIn = '';
-            let clockOut = '';
-            let total = '';
-
-            if (!isWeekend && !isFeriado) {
-
-                const inMin = Math.floor(Math.random() * 30) + 45;
-                const inHour = inMin >= 60 ? 9 : 8;
-                const realInMin = inMin % 60;
-
-                const outMin = Math.floor(Math.random() * 45);
-
-                const formatTime = (h: number, m: number, ampm: string) =>
-                    `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')} ${ampm}`;
-
-                clockIn = formatTime(inHour, realInMin, 'AM');
-                clockOut = formatTime(6, outMin, 'PM');
-
-                total = this.calculateWorkedHours(clockIn, clockOut);
-
-                if (inHour === 9 && realInMin > 5) {
-                    dayStatus = 'Tarde';
-                }
-            }
-
-            if (isWeekend) {
-                dayStatus = 'Descanso';
-                clockIn = '-- : --';
-                clockOut = '-- : --';
-                total = '0h 0m';
-            } else if (isFeriado) {
-                dayStatus = 'Feriado';
-                clockIn = '-- : --';
-                clockOut = '-- : --';
-                total = '0h 0m';
-            }
-
-            history.push({
-                date: dateOfRecord,
-                clockIn,
-                clockOut,
-                totalHours: total,
-                status: dayStatus,
-                isNonWorking: isWeekend || isFeriado
-            });
-        }
-
-        return history.reverse();
-    }
 
     calculateStats(dataToProcess: any[]) {
         this.totalEmployees = dataToProcess.length;
@@ -300,10 +262,10 @@ export class AttendanceComponent implements OnInit {
 
     filterData() {
         if (!this.searchText) {
-            this.displayedData = [...this.mockAttendanceData];
+            this.displayedData = [...this.attendanceData];
         } else {
             const lowerQuery = this.searchText.toLowerCase();
-            this.displayedData = this.mockAttendanceData.filter(emp =>
+            this.displayedData = this.attendanceData.filter(emp =>
                 emp.name.toLowerCase().includes(lowerQuery) ||
                 emp.role.toLowerCase().includes(lowerQuery) ||
                 emp.department.toLowerCase().includes(lowerQuery)

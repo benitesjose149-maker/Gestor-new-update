@@ -49,6 +49,9 @@ interface EmployeeFormData {
     cci: string;
     nivelEducativo: string;
     estado: string;
+    biometricId?: number;
+    entryTime?: string;
+    exitTime?: string;
 }
 
 @Component({
@@ -78,7 +81,8 @@ export class GestionEmpleadosComponent {
         email: '', cargo: '', departamento: '', tipoTrabajador: 'PLANILLA', regimenPensionario: 'SNP/ONP', sueldo: 0, asignacionFamiliar: false,
         calculoAfpMinimo: false,
         fechaInicio: new Date().toISOString().split('T')[0], fechaFinContrato: '', tipoContrato: '', horarioTrabajo: '',
-        banco: '', tipoCuenta: '', numeroCuenta: '', cci: '', nivelEducativo: '', estado: 'Activo'
+        banco: '', tipoCuenta: '', numeroCuenta: '', cci: '', nivelEducativo: '', estado: 'Activo',
+        biometricId: undefined, entryTime: '', exitTime: ''
     };
 
     cargos: string[] = ['Técnico', 'Administrador', 'Vendedor', 'Gerente', 'Recepcionista', 'Programador', 'Administrativo', 'Ventas', 'Gerencia', 'Soporte Técnico', 'Diseño', 'Marketing'];
@@ -206,7 +210,8 @@ export class GestionEmpleadosComponent {
             email: '', cargo: '', departamento: '', tipoTrabajador: 'PLANILLA', regimenPensionario: 'SNP/ONP', sueldo: 0, asignacionFamiliar: false,
             calculoAfpMinimo: false,
             fechaInicio: new Date().toISOString().split('T')[0], fechaFinContrato: '', tipoContrato: '', horarioTrabajo: '',
-            banco: '', tipoCuenta: '', numeroCuenta: '', cci: '', nivelEducativo: '', estado: 'Activo'
+            banco: '', tipoCuenta: '', numeroCuenta: '', cci: '', nivelEducativo: '', estado: 'Activo',
+            biometricId: undefined, entryTime: '', exitTime: ''
         };
         this.availableDepartamentos = [];
     }

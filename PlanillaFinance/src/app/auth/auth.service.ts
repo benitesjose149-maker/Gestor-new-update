@@ -61,8 +61,7 @@ export class AuthService {
     const user = this.currentUserValue;
     if (!user || !user.email) return;
     try {
-      const apiUrl = window.location.hostname === 'localhost' ? 'http://localhost:3005' : '';
-      const url = `${apiUrl}/api/auth/me/${user.email}?t=${new Date().getTime()}`;
+      const url = `${API_URL}/api/auth/me/${user.email}?t=${new Date().getTime()}`;
       const data: any = await firstValueFrom(this.http.get(url));
       if (data && data.success && data.user) {
         const newPerms = data.user.permissions;

@@ -365,7 +365,7 @@ export class MovimientosComponent {
         }
 
         try {
-            const url = new URL(API_URL + `/api/${endpoint}/${move._id}`);
+            const url = new URL(API_URL + `/api/${endpoint}/${move._id}`, window.location.origin);
             if (result.checkboxValue) {
                 url.searchParams.append('deleteAll', 'true');
             }
