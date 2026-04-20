@@ -95,7 +95,6 @@ export async function processEmails(req, res) {
 
             if (parsed && autoCreate) {
                 try {
-                    // Check if already saved (by Gmail message ID as reference)
                     const pool = await poolFinance;
                     const existing = await pool.request()
                         .input('ref', mssql.NVarChar, `gmail:${msg.id}`)
@@ -110,10 +109,11 @@ export async function processEmails(req, res) {
                         request.input('comercio', mssql.NVarChar(255), parsed.comercio);
                         request.input('ref', mssql.NVarChar(255), `gmail:${msg.id}`);
                         request.input('origen', mssql.NVarChar(50), 'GMAIL');
+                        request.input('codigo', mssql.NVarChar(100), parsed.codigoContable || '');
 
                         await request.query(`
-                            INSERT INTO FINANCE_EGRESOS (Fecha, Monto, Banco, TipoEgreso, Comercio, Referencia, Origen, CreatedAt, UpdatedAt)
-                            VALUES (@fecha, @monto, @banco, @tipo, @comercio, @ref, @origen, GETDATE(), GETDATE())
+                            INSERT INTO FINANCE_EGRESOS (Fecha, Monto, Banco, TipoEgreso, Comercio, Referencia, Origen, CodigoContable, CreatedAt, UpdatedAt)
+                            VALUES (@fecha, @monto, @banco, @tipo, @comercio, @ref, @origen, @codigo, GETDATE(), GETDATE())
                         `);
                         saved++;
                         result.savedToDb = true;

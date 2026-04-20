@@ -1,11 +1,13 @@
+
 import { Component, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { NotificationService } from './notification.service';
 
 @Component({
   selector: 'app-notification',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, FormsModule],
   template: `
     <!-- TOAST CONTAINER -->
     <div class="toast-container">
@@ -31,17 +33,30 @@ import { NotificationService } from './notification.service';
     <!-- CONFIRM MODAL -->
     @if (notificationService.confirmData(); as config) {
       <div class="modal-backdrop">
-        <div class="modal-container">
-          <div class="modal-content">
-            <div class="modal-header">
-              <h3>{{ config.title }}</h3>
+        <div class="modal-container shadow-lg animate-in fade-in zoom-in duration-200">
+          <div class="modal-content p-6 rounded-2xl bg-white dark:bg-gray-800">
+            <div class="modal-header mb-4">
+              <h3 class="text-xl font-bold text-gray-900 dark:text-white">{{ config.title }}</h3>
             </div>
-            <div class="modal-body">
-              <p>{{ config.message }}</p>
+            <div class="modal-body mb-6">
+              <p class="text-gray-600 dark:text-gray-300 leading-relaxed">{{ config.message }}</p>
+              
+              @if (config.checkboxLabel) {
+                <div class="modal-checkbox-container" (click)="localCheckboxValue = !localCheckboxValue">
+                  <input type="checkbox" [(ngModel)]="localCheckboxValue" (click)="$event.stopPropagation()" />
+                  <label>{{ config.checkboxLabel }}</label>
+                </div>
+              }
             </div>
-            <div class="modal-actions">
-              <button class="btn-cancel" (click)="config.resolve(false)">{{ config.cancelText || 'Cancelar' }}</button>
-              <button class="btn-confirm" (click)="config.resolve(true)">{{ config.confirmText || 'Confirmar' }}</button>
+            <div class="modal-actions flex justify-end gap-3">
+              <button class="btn-cancel px-5 py-2.5 rounded-xl font-semibold text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-all border-none" 
+                  (click)="handleResolve(false, config)">
+                {{ config.cancelText || 'Cancelar' }}
+              </button>
+              <button class="btn-confirm px-5 py-2.5 rounded-xl font-semibold text-white bg-blue-600 hover:bg-blue-700 shadow-md shadow-blue-500/30 transition-all border-none" 
+                  (click)="handleResolve(true, config)">
+                {{ config.confirmText || 'Confirmar' }}
+              </button>
             </div>
           </div>
         </div>
@@ -52,4 +67,10 @@ import { NotificationService } from './notification.service';
 })
 export class NotificationComponent {
   notificationService = inject(NotificationService);
+  localCheckboxValue = false;
+
+  handleResolve(confirmed: boolean, config: any) {
+    config.resolve({ confirmed, checkboxValue: this.localCheckboxValue });
+    this.localCheckboxValue = false; // Reset for next time
+  }
 }

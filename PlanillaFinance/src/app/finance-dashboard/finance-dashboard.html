@@ -12,7 +12,6 @@
             </button>
         </div>
     </header>
-
     <div class="filters-section glass-card">
         <div class="filter-item">
             <label><i class="fa-solid fa-magnifying-glass"></i> Cliente / Concepto</label>
@@ -47,7 +46,7 @@
         <span>Cargando datos financieros...</span>
     </div>
 
-    <div class="finance-main-content">
+    <div class="finance-main-content" [ngClass]="{'table-fullscreen': tableExpanded}">
         <div class="movements-section">
             <div *ngIf="!loading" class="card glass-card">
                 <div class="card-header">
@@ -55,31 +54,36 @@
                         <h2>Registros de Movimientos</h2>
                         <span class="record-description">Listado detallado con filtros aplicados</span>
                     </div>
+                    <button class="btn-expand" (click)="tableExpanded = !tableExpanded"
+                        [title]="tableExpanded ? 'Contraer tabla' : 'Expandir tabla'">
+                        <span class="expand-icon">{{ tableExpanded ? '⤡' : '⤢' }}</span>
+                    </button>
                 </div>
                 <div class="table-scroll-container">
                     <div class="table-wrapper">
                         <table class="finance-table">
                             <thead>
                                 <tr>
-                                    <th>ID</th>
-                                    <th>Nº Factura</th>
-                                    <th>Fecha</th>
-                                    <th>Cliente / Concepto</th>
-                                    <th>Ref / Obs</th>
-                                    <th>Tipo Mov.</th>
-                                    <th>Monto Bruto</th>
-                                    <th>Comisión</th>
-                                    <th>Depósito/Salida</th>
-                                    <th>Banco</th>
-                                    <th>Cta. Débito</th>
-                                    <th>Cta. Crédito</th>
-                                    <th>C. Contable</th>
-                                    <th>Estado</th>
+                                    <th style="width: 50px;">TIPO</th>
+                                    <th>Nº FACTURA</th>
+                                    <th>FECHA</th>
+                                    <th>CLIENTE / CONCEPTO</th>
+                                    <th>REF / OBS</th>
+                                    <th>TIPO MOV.</th>
+                                    <th>MONTO BRUTO</th>
+                                    <th>COMISIÓN</th>
+                                    <th>DEPÓSITO/SALIDA</th>
+                                    <th>BANCO</th>
+                                    <th>CTA. DÉBITO</th>
+                                    <th>CTA. CRÉDITO</th>
+                                    <th>C. CONTABLE</th>
+                                    <th>ESTADO</th>
+                                    <th>ACCION</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <tr *ngFor="let inv of paginatedItems; let i = index" class="table-row"
-                                    [ngClass]="{'egreso-row': inv.isEgreso}">
+                                    [id]="'invoice-row-' + inv.id" [ngClass]="{'egreso-row': inv.isEgreso}">
                                     <td class="id-cell">
                                         <span *ngIf="!inv.isEgreso" class="badge badge-ingreso">INGRESO</span>
                                         <span *ngIf="inv.isEgreso && inv.origen !== 'GMAIL'"
@@ -128,15 +132,23 @@
                                     </td>
                                     <td class="amount-cell"
                                         [ngClass]="inv.isEgreso ? 'amount-negative text-danger' : 'amount-positive'">
-                                        <span class="nowrap-amount">{{ inv.isEgreso ? '-' : '' }}S/.{{ (inv.montoBruto
-                                            ||
-                                            0) | number:'1.2-2' }}</span>
+                                        <div class="input-with-currency" *ngIf="!inv.isEgreso && inv.editing">
+                                            <span class="currency-prefix">S/</span>
+                                            <input type="number" class="cell-input amount-input"
+                                                [(ngModel)]="inv.montoBruto" (ngModelChange)="onMontoBrutoChange(inv)"
+                                                step="0.01" min="0">
+                                        </div>
+                                        <span class="nowrap-amount" *ngIf="inv.isEgreso || !inv.editing">
+                                            {{ inv.isEgreso ? '-' : '' }}S/.{{ (inv.montoBruto || 0) | number:'1.2-2' }}
+                                        </span>
                                     </td>
                                     <td>
-                                        <input *ngIf="!inv.isEgreso" type="number" class="cell-input"
-                                            [(ngModel)]="inv.comision" (ngModelChange)="onComisionChange(inv)"
-                                            step="0.01" min="0">
-                                        <span *ngIf="inv.isEgreso">-</span>
+                                        <div *ngIf="!inv.isEgreso && inv.editing">
+                                            <input type="number" class="cell-input" [(ngModel)]="inv.comision"
+                                                (ngModelChange)="onComisionChange(inv)" step="0.01" min="0">
+                                        </div>
+                                        <span *ngIf="inv.isEgreso || !inv.editing">{{ !inv.isEgreso ? (inv.comision |
+                                            number:'1.2-2') : '-' }}</span>
                                     </td>
                                     <td class="amount-cell"
                                         [ngClass]="inv.isEgreso ? 'amount-negative text-danger fw-bold' : ''">
@@ -154,7 +166,7 @@
                                     </td>
                                     <td>
                                         <select *ngIf="!inv.isEgreso" class="cell-select" [(ngModel)]="inv.cuentaDebito"
-                                            (change)="onFieldChange(inv)">
+                                            (change)="onCuentaDebitoChange(inv)">
                                             <option value="">--</option>
                                             <option *ngFor="let da of debitAccounts" [value]="da.name">{{ da.name }}
                                             </option>
@@ -170,7 +182,7 @@
                                     </td>
                                     <td>
                                         <select class="cell-select" [(ngModel)]="inv.codigoContable"
-                                            (change)="onFieldChange(inv)">
+                                            (change)="onCodigoContableChange(inv)">
                                             <option value="">--</option>
                                             <option *ngFor="let cc of codigosContables" [value]="cc.codigo">{{ cc.name
                                                 }}
@@ -178,17 +190,24 @@
                                         </select>
                                     </td>
                                     <td>
-                                        <select *ngIf="!inv.isEgreso" class="cell-select" [(ngModel)]="inv.estadoLocal"
-                                            (change)="onFieldChange(inv)">
-                                            <option value="">--</option>
+                                        <select class="cell-select" [(ngModel)]="inv.estadoLocal"
+                                            (change)="onFieldChange(inv)"
+                                            [ngStyle]="inv.estadoLocal === 'Pendiente' ? {'color':'#dc2626','background-color':'#fef2f2','border-color':'#fca5a5','font-weight':'600'} : {}">
                                             <option *ngFor="let ts of transactionStatuses" [value]="ts.name">{{ ts.name
                                                 }}</option>
                                         </select>
-                                        <button *ngIf="inv.isEgreso" class="btn btn-sm btn-outline-danger border-0"
+                                    </td>
+                                    <td class="text-center">
+                                        <button class="action-link edit-btn" (click)="toggleEdit(inv)"
+                                            *ngIf="!inv.isEgreso">
+                                            {{ inv.editing ? 'GUARDAR' : 'EDITAR' }}
+                                        </button>
+                                        <button *ngIf="inv.isEgreso" class="action-link delete-btn"
                                             (click)="eliminarEgreso(inv.id)" title="Eliminar Egreso">
-                                            <i class="fa-solid fa-trash"></i>
+                                            ELIMINAR
                                         </button>
                                     </td>
+
                                 </tr>
                                 <tr *ngIf="items.length === 0">
                                     <td colspan="13" class="empty-state">
@@ -236,47 +255,70 @@
             <div class="card glass-card side-widget">
                 <div class="card-header">
                     <h2>Balances por Banco</h2>
+                    <button class="btn-edit-balances" (click)="toggleEditBalances()"
+                        [title]="editingBalances ? 'Cancelar edición' : 'Editar balances'">
+                        {{ editingBalances ? '✕' : '✏️' }}
+                    </button>
                 </div>
                 <div class="bank-list">
-                    <div class="bank-item interbank">
-                        <div class="bank-icon">IB</div>
-                        <div class="bank-details">
-                            <span class="bank-name">INTERBANK</span>
-                            <span class="bank-balance">S/ {{ totalInterbank | number:'1.2-2' }}</span>
+                    <ng-container *ngIf="!editingBalances">
+                        <div class="bank-item interbank">
+                            <div class="bank-icon">IB</div>
+                            <div class="bank-details">
+                                <span class="bank-name">INTERBANK</span>
+                                <span class="bank-balance">S/ {{ totalInterbank | number:'1.2-2' }}</span>
+                            </div>
                         </div>
-                    </div>
-                    <div class="bank-item bcp">
-                        <div class="bank-icon">BC</div>
-                        <div class="bank-details">
-                            <span class="bank-name">BCP</span>
-                            <span class="bank-balance">S/ {{ totalBcp | number:'1.2-2' }}</span>
+                        <div class="bank-item bcp">
+                            <div class="bank-icon">BC</div>
+                            <div class="bank-details">
+                                <span class="bank-name">BCP</span>
+                                <span class="bank-balance">S/ {{ totalBcp | number:'1.2-2' }}</span>
+                            </div>
                         </div>
-                    </div>
-                    <div class="bank-item caja">
-                        <div class="bank-icon">CV</div>
-                        <div class="bank-details">
-                            <span class="bank-name">CAJA VIRTUAL</span>
-                            <span class="bank-balance">S/ {{ totalCajaVirtual | number:'1.2-2' }}</span>
+                        <div class="bank-item caja">
+                            <div class="bank-icon">CV</div>
+                            <div class="bank-details">
+                                <span class="bank-name">CAJA VIRTUAL</span>
+                                <span class="bank-balance">S/ {{ totalCajaVirtual | number:'1.2-2' }}</span>
+                            </div>
                         </div>
-                    </div>
+                        <div class="bank-item caja">
+                            <div class="bank-icon">B1</div>
+                            <div class="bank-details">
+                                <span class="bank-name">Balance 1</span>
+                                <span class="bank-balance">S/ {{ balance1 | number:'1.2-2' }}</span>
+                            </div>
+                        </div>
+                        <div class="bank-item caja">
+                            <div class="bank-icon">B2</div>
+                            <div class="bank-details">
+                                <span class="bank-name">Balance 2</span>
+                                <span class="bank-balance">S/ {{ balance2 | number:'1.2-2' }}</span>
+                            </div>
+                        </div>
+                    </ng-container>
 
-                    <div class="bank-item caja">
-                        <div class="bank-icon">B1</div>
-                        <div class="bank-details">
-                            <span class="bank-name">Balance 1</span>
-                            <span class="bank-balance">S/ {{ balance1 | number:'1.2-2' }}</span>
+                    <ng-container *ngIf="editingBalances">
+                        <div class="bank-item editing" [ngClass]="b.css" *ngFor="let b of bankBalances; let i = index">
+                            <div class="bank-icon-edit">
+                                <input type="text" class="icon-input" [(ngModel)]="b.icon" maxlength="3">
+                            </div>
+                            <div class="bank-details-edit">
+                                <input type="text" class="name-input" [(ngModel)]="b.name" placeholder="Nombre">
+                                <div class="balance-input-wrapper">
+                                    <span class="currency-label">S/</span>
+                                    <input type="number" class="balance-input" [(ngModel)]="b.value" step="0.01">
+                                </div>
+                            </div>
                         </div>
-                    </div>
-
-                    <div class="bank-item caja">
-                        <div class="bank-icon">B2</div>
-                        <div class="bank-details">
-                            <span class="bank-name">Balance 2</span>
-                            <span class="bank-balance">S/ {{ balance2 | number:'1.2-2' }}</span>
-                        </div>
-                    </div>
+                        <button class="btn-save-balances" (click)="saveBankBalances()">
+                            ✓ Guardar Cambios
+                        </button>
+                    </ng-container>
                 </div>
             </div>
+
 
             <div class="card glass-card side-widget">
                 <div class="card-header">
@@ -297,7 +339,8 @@
                     </div>
                     <div class="summary-line highlight">
                         <span class="summary-label">Neto Disponible</span>
-                        <span class="summary-val">S/ {{ (totalBruto - totalEgresos) | number:'1.2-2' }}</span>
+                        <span class="summary-val">S/ {{ (totalBruto - totalComisiones - totalEgresos) | number:'1.2-2'
+                            }}</span>
                     </div>
                 </div>
             </div>

@@ -10,8 +10,13 @@
         style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 20px;">
         <input type="month" class="form-control" style="width: 180px;" [(ngModel)]="selectedMonth">
 
-        <input type="text" class="search-input" placeholder="Buscar por empleado..." [(ngModel)]="searchTerm"
-            style="flex: 1; min-width: 200px;">
+        <select class="form-control" style="flex: 1; min-width: 200px;" [(ngModel)]="selectedEmployeeId"
+            (change)="filterMovements()">
+            <option value="">Todos los Empleados</option>
+            <option *ngFor="let emp of employees" [value]="emp.nombre + ' ' + emp.apellidos">
+                {{emp.nombre}} {{emp.apellidos}}
+            </option>
+        </select>
 
         <select class="form-control" style="width: 200px;" [(ngModel)]="filterType">
             <option value="">Todos los Tipos</option>
@@ -102,6 +107,10 @@
                         <span style="color: #6b7280; font-style: italic;">{{move.observacion || '-'}}</span>
                     </td>
                     <td style="text-align: center;">
+                        <button class="btn-icon btn-view" (click)="viewDetails(move)" title="Ver Detalles"
+                            style="margin-right: 8px;">
+                            👁️
+                        </button>
                         <button class="btn-icon btn-delete" (click)="deleteMovement(move)" title="Eliminar">
                             🗑️
                         </button>
@@ -177,6 +186,83 @@
             <button class="btn-save" (click)="saveMovement()" [disabled]="!isValidForm()">
                 Guardar Movimiento
             </button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Ver Detalles -->
+<div class="modal-overlay" *ngIf="showDetailsModal && selectedMovement" (click)="closeDetailsModal()">
+    <div class="modal-content" style="max-width: 500px;" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+            <h2>Detalles del Movimiento</h2>
+            <button class="close-btn" (click)="closeDetailsModal()">&times;</button>
+        </div>
+        <div class="modal-body" style="padding: 0;">
+            <div style="padding: 20px; background: #fff;">
+                <div style="display: grid; grid-template-columns: 140px 1fr; gap: 12px 15px; align-items: center;">
+                    <div style="color: #64748b; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">
+                        Empleado</div>
+                    <div style="color: #1e293b; font-weight: 600; font-size: 0.95rem;">
+                        {{selectedMovement.empleadoNombre}}</div>
+
+                    <div style="color: #64748b; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Cargo
+                    </div>
+                    <div style="color: #475569; font-size: 0.9rem;">{{selectedMovement.empleadoCargo}}</div>
+
+                    <div style="color: #64748b; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">
+                        Operación</div>
+                    <div><span class="badge" [ngClass]="selectedMovement.tipo.toLowerCase()"
+                            style="font-size: 0.75rem;">{{selectedMovement.tipo}}</span></div>
+
+                    <div style="color: #64748b; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Monto
+                        Asignado</div>
+                    <div style="color: #0f172a; font-weight: 700; font-size: 1.1rem;">S/ {{selectedMovement.monto |
+                        number:'1.2-2'}}</div>
+
+                    <div style="color: #64748b; font-weight: 600; text-transform: uppercase; font-size: 0.75rem;">Mes /
+                        Periodo</div>
+                    <div style="color: #475569; font-size: 0.9rem;">{{selectedMovement.fecha | date:'dd/MM/yyyy'}}</div>
+
+                    <ng-container *ngIf="selectedMovement.fechaRegistro">
+                        <div style="color: #94a3b8; font-weight: 600; text-transform: uppercase; font-size: 0.7rem;">
+                            Registro en Sist.</div>
+                        <div style="color: #94a3b8; font-size: 0.8rem;">{{selectedMovement.fechaRegistro | date:'MMM d,
+                            y, h:mm a'}}</div>
+                    </ng-container>
+                </div>
+            </div>
+
+            <div style="background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 20px;">
+                <ng-container *ngIf="selectedMovement.tipo === 'PRESTAMO'">
+                    <div
+                        style="margin-bottom: 18px; border-left: 3px solid #3b82f6; padding-left: 12px; background: #eff6ff; padding-top: 8px; padding-bottom: 8px; padding-right: 8px; border-radius: 0 4px 4px 0;">
+                        <div
+                            style="font-size: 0.7rem; text-transform: uppercase; color: #1e40af; font-weight: 700; margin-bottom: 3px; letter-spacing: 0.5px;">
+                            Control de Préstamo</div>
+                        <div style="color: #1e3a8a; font-size: 0.85rem;">Cuota programada <strong
+                                style="font-size: 0.95rem;">{{selectedMovement.cuotas}}</strong> de un total de
+                            <strong>{{selectedMovement.totalCuotas || '?'}}</strong> cuotas.
+                        </div>
+                    </div>
+                </ng-container>
+
+                <div>
+                    <div
+                        style="font-size: 0.75rem; text-transform: uppercase; color: #64748b; font-weight: 600; margin-bottom: 8px;">
+                        Observaciones</div>
+                    <div
+                        style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 4px; padding: 12px; color: #334155; font-size: 0.85rem; min-height: 50px;">
+                        {{selectedMovement.observacion || 'Sin observaciones registradas.'}}
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer"
+            style="padding: 12px 20px; background: #fff; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end;">
+            <button type="button"
+                class="btn-cancel"
+                style="background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px 16px; font-weight: 600; font-size: 0.85rem; cursor: pointer;"
+                (click)="closeDetailsModal()">Cerrar Vista</button>
         </div>
     </div>
 </div>

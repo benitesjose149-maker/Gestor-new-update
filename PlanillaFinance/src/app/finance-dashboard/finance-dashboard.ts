@@ -1,5 +1,6 @@
 
 import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { API_URL, getAuthHeaders } from '../api-config';
@@ -27,6 +28,9 @@ export class FinanceDashboardComponent implements OnInit {
     pageSize: any = 25;
     totalPages: number = 1;
     totalResults: number = 0;
+    tableExpanded: boolean = false;
+    editingBalances: boolean = false;
+    bankBalances: any[] = [];
 
     showModal: boolean = false;
     showInvoiceModal: boolean = false;
@@ -45,9 +49,10 @@ export class FinanceDashboardComponent implements OnInit {
     transactionStatuses: any[] = [];
 
     constructor(
-        private cdr: ChangeDetectorRef, 
+        private cdr: ChangeDetectorRef,
         private notification: NotificationService,
-        private audit: AuditService
+        private audit: AuditService,
+        private route: ActivatedRoute
     ) { }
 
     ngOnInit() {
@@ -56,6 +61,13 @@ export class FinanceDashboardComponent implements OnInit {
 
     async loadAll() {
         this.loading = true;
+
+        const highlightId = this.route.snapshot.queryParams['highlight'];
+        if (highlightId) {
+            this.pageSize = 'All';
+            this.filters = { searchText: '', banco: '', tipoMov: '', numFactura: '', fecha: '' };
+        }
+
         try {
             const currentMonth = new Date().getMonth() + 1;
             const currentYear = new Date().getFullYear();
@@ -102,7 +114,7 @@ export class FinanceDashboardComponent implements OnInit {
                 this.thisMonthTotal = data.thisMonthTotal || 0;
                 this.thisMonthTotalGross = data.thisMonthTotalGross || 0;
                 this.thisMonthUnpaid = data.thisMonthUnpaid || 0;
-                this.totalPages = data.totalPages || 1;
+                this.totalPages = this.pageSize === 'All' ? 1 : (data.totalPages || 1);
                 this.totalResults = data.totalresults || 0;
 
                 const mappedInvoices = (data.invoices || []).map((inv: any) => {
@@ -110,7 +122,7 @@ export class FinanceDashboardComponent implements OnInit {
                     const item = {
                         ...inv,
                         fecha: localDate,
-                        estadoLocal: (!inv.estadoLocal || inv.estadoLocal === 'Pendiente') ? 'Conciliado' : inv.estadoLocal,
+                        estadoLocal: inv.estadoLocal || 'Pendiente',
                         isEgreso: false,
                         sortDate: localDate ? localDate.getTime() : 0,
                         isScanning: false
@@ -235,6 +247,37 @@ export class FinanceDashboardComponent implements OnInit {
         } finally {
             this.loading = false;
             this.cdr.detectChanges();
+
+            const highlightId = this.route.snapshot.queryParams['highlight'];
+            if (highlightId) {
+                // El resaltado con reintentos asegura que el elemento exista en el DOM antes de aplicar efectos
+                this.highlightRow(highlightId);
+            }
+        }
+    }
+
+    highlightRow(id: any, attempts: number = 0) {
+        if (attempts > 20) {
+            console.warn('[Highlight] No se encontró el elemento tras 10 segundos:', id);
+            return;
+        }
+
+        const row = document.getElementById(`invoice-row-${id}`);
+        if (row) {
+            console.log('[Highlight] Elemento encontrado, aplicando scroll y color');
+            row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            row.style.transition = 'background-color 0.5s ease-in-out, border 0.3s ease';
+            row.style.backgroundColor = '#fef08a';
+            row.style.borderLeft = '6px solid #eab308';
+
+            setTimeout(() => {
+                row.style.backgroundColor = '';
+                row.style.borderLeft = '';
+            }, 5000);
+        } else {
+            setTimeout(() => {
+                this.highlightRow(id, attempts + 1);
+            }, 500);
         }
     }
 
@@ -247,7 +290,21 @@ export class FinanceDashboardComponent implements OnInit {
     };
 
     get filteredItems(): any[] {
+        const now = new Date();
+        const cm = now.getMonth();
+        const cy = now.getFullYear();
+
+        const qid = this.route.snapshot.queryParams['highlight'];
+
         return this.items.filter(it => {
+            // Si es el ítem que queremos resaltar, saltamos el filtro de fecha
+            if (qid && (it.id == qid || it.localId == qid)) return true;
+
+            if (it.fecha) {
+                const f = new Date(it.fecha);
+                if (f.getMonth() !== cm || f.getFullYear() !== cy) return false;
+            }
+
             const search = this.filters.searchText.toLowerCase();
             const matchSearch = !search ||
                 (it.clienteConcepto || '').toLowerCase().includes(search) ||
@@ -286,26 +343,46 @@ export class FinanceDashboardComponent implements OnInit {
     }
 
     get totalInterbank(): number {
-        const ingresos = this.filteredItems.filter(i => !i.isEgreso && i.banco === 'INTERBANK').reduce((sum, inv) => sum + (inv.depositoSalida || 0), 0);
-        const egresos = this.filteredItems.filter(i => i.isEgreso && i.banco === 'INTERBANK').reduce((sum, e) => sum + (e.monto || 0), 0);
-        return ingresos - egresos;
+        const now = new Date();
+        const cm = now.getMonth();
+        const cy = now.getFullYear();
+        return this.filteredItems.filter(i => {
+            if (i.isEgreso) return false;
+            if ((i.cuentaDebito || '').toLowerCase() !== 'interbank') return false;
+            if (!i.fecha) return false;
+            const f = new Date(i.fecha);
+            return f.getMonth() === cm && f.getFullYear() === cy;
+        }).reduce((sum, inv) => sum + (inv.montoBruto || 0), 0);
     }
 
     get totalBcp(): number {
-        const ingresos = this.filteredItems.filter(i => !i.isEgreso && i.banco === 'BCP').reduce((sum, inv) => sum + (inv.depositoSalida || 0), 0);
-        const egresos = this.filteredItems.filter(i => i.isEgreso && i.banco === 'BCP').reduce((sum, e) => sum + (e.monto || 0), 0);
-        return ingresos - egresos;
+        const now = new Date();
+        const cm = now.getMonth();
+        const cy = now.getFullYear();
+        return this.filteredItems.filter(i => {
+            if (i.isEgreso) return false;
+            if ((i.cuentaDebito || '').toLowerCase() !== 'bcp') return false;
+            if (!i.fecha) return false;
+            const f = new Date(i.fecha);
+            return f.getMonth() === cm && f.getFullYear() === cy;
+        }).reduce((sum, inv) => sum + (inv.montoBruto || 0), 0);
     }
 
     get totalCajaVirtual(): number {
-        const ingresos = this.filteredItems.filter(i => {
-             if (i.isEgreso) return false;
-             if (i.cuentaDebito === 'Izipay cobrado') return true;
-             return i.banco === 'CAJA VIRTUAL' && i.cuentaDebito !== 'Izipay por cobrar';
-        }).reduce((sum, inv) => sum + (inv.depositoSalida || 0), 0);
-        const egresos = this.filteredItems.filter(i => i.isEgreso && i.banco === 'CAJA VIRTUAL').reduce((sum, e) => sum + (e.monto || 0), 0);
-        return ingresos - egresos;
+        const now = new Date();
+        const cm = now.getMonth();
+        const cy = now.getFullYear();
+        return this.filteredItems.filter(i => {
+            if (i.isEgreso) return false;
+            const cta = (i.cuentaDebito || '').toLowerCase();
+            if (cta !== 'izipay cobrado' && cta !== 'caja virtual') return false;
+            if (!i.fecha) return false;
+            const f = new Date(i.fecha);
+            return f.getMonth() === cm && f.getFullYear() === cy;
+        }).reduce((sum, inv) => sum + (inv.montoBruto || 0), 0);
     }
+
+
 
     get balance1(): number {
         return 0;
@@ -313,6 +390,28 @@ export class FinanceDashboardComponent implements OnInit {
 
     get balance2(): number {
         return (this.thisMonthTotalGross || 0) - this.totalPayrollNet;
+    }
+
+    initBankBalances() {
+        this.bankBalances = [
+            { icon: 'IB', name: 'INTERBANK', value: this.totalInterbank, css: 'interbank' },
+            { icon: 'BC', name: 'BCP', value: this.totalBcp, css: 'bcp' },
+            { icon: 'CV', name: 'CAJA VIRTUAL', value: this.totalCajaVirtual, css: 'caja' },
+            { icon: 'B1', name: 'Balance 1', value: this.balance1, css: 'caja' },
+            { icon: 'B2', name: 'Balance 2', value: this.balance2, css: 'caja' }
+        ];
+    }
+
+    toggleEditBalances() {
+        if (!this.editingBalances) {
+            this.initBankBalances();
+        }
+        this.editingBalances = !this.editingBalances;
+    }
+
+    saveBankBalances() {
+        this.editingBalances = false;
+        this.notification.success('Balances actualizados correctamente');
     }
 
     get totalComisiones(): number {
@@ -332,6 +431,19 @@ export class FinanceDashboardComponent implements OnInit {
         return months[new Date().getMonth()] + ' ' + new Date().getFullYear();
     }
 
+    toggleEdit(inv: any) {
+        inv.editing = !inv.editing;
+        if (!inv.editing) {
+            this.notification.success('Cambios guardados correctamente');
+        }
+    }
+
+    onMontoBrutoChange(inv: any) {
+        if (inv.isEgreso) return;
+        inv.depositoSalida = (inv.montoBruto || 0) - (inv.comision || 0);
+        this.onFieldChange(inv);
+    }
+
     onComisionChange(inv: any) {
         if (inv.isEgreso) return;
         inv.depositoSalida = (inv.montoBruto || 0) - (inv.comision || 0);
@@ -342,6 +454,24 @@ export class FinanceDashboardComponent implements OnInit {
         if (inv.isEgreso) return;
         if (inv.banco) {
             inv.cuentaDebito = this.buscarCuentaDebitoPorBanco(inv.banco);
+        }
+        this.onFieldChange(inv);
+    }
+
+    onCuentaDebitoChange(inv: any) {
+        if (inv.isEgreso) return;
+        const cta = (inv.cuentaDebito || '').toLowerCase();
+        if (cta === 'izipay cobrado') {
+            inv.estadoLocal = 'Conciliado';
+        } else if (cta === 'izipay por cobrar') {
+            inv.estadoLocal = 'Pendiente';
+        }
+        this.onFieldChange(inv);
+    }
+
+    onCodigoContableChange(inv: any) {
+        if (inv.codigoContable) {
+            inv.estadoLocal = 'Conciliado';
         }
         this.onFieldChange(inv);
     }
@@ -378,6 +508,7 @@ export class FinanceDashboardComponent implements OnInit {
             this.audit.log(`Actualizó metadata de Factura ID: ${inv.WHMCS_InvoiceID}`, 'Finanzas', `Banco: ${inv.banco} | Estado Local: ${inv.estadoLocal}`);
         } catch (error) {
             console.error('Error updating metadata:', error);
+            this.notification.error('Error al guardar los cambios');
         }
     }
 
@@ -560,8 +691,6 @@ export class FinanceDashboardComponent implements OnInit {
         const url = `${API_URL}/api/whmcs/invoice/${invoiceId}/pdf`;
         const link = document.createElement('a');
         link.href = url;
-        // Since the backend sets Content-Disposition: attachment, 
-        // this will trigger a download without changing the page.
         link.target = '_self';
         document.body.appendChild(link);
         link.click();

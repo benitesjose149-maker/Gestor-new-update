@@ -12,7 +12,8 @@ export interface ConfirmData {
     message: string;
     confirmText?: string;
     cancelText?: string;
-    resolve: (value: boolean) => void;
+    checkboxLabel?: string;
+    resolve: (value: { confirmed: boolean, checkboxValue: boolean }) => void;
 }
 
 @Injectable({
@@ -54,13 +55,14 @@ export class NotificationService {
         this.toasts.update(current => current.filter(t => t.id !== id));
     }
 
-    confirm(message: string, title = 'Confirmar Acción', confirmText = 'Confirmar', cancelText = 'Cancelar'): Promise<boolean> {
+    confirm(message: string, title = 'Confirmar Acción', confirmText = 'Confirmar', cancelText = 'Cancelar', checkboxLabel?: string): Promise<{ confirmed: boolean, checkboxValue: boolean }> {
         return new Promise((resolve) => {
             this.confirmData.set({
                 title,
                 message,
                 confirmText,
                 cancelText,
+                checkboxLabel,
                 resolve: (val) => {
                     this.confirmData.set(null);
                     resolve(val);

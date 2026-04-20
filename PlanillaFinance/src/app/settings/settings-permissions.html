@@ -113,9 +113,11 @@
                         <span *ngIf="user.ROL === 'SUPER_ADMIN'" class="full-access">Acceso Total</span>
                     </td>
                     <td class="text-center">
-                        <button class="delete-btn-user" (click)="deleteUser(user)" title="Eliminar este administrador">
-                            Eliminar
+                        <button *ngIf="user.ROL !== 'SUPER_ADMIN'" class="delete-btn-user" (click)="deleteUser(user)"
+                            title="Eliminar a {{ user.FULL_NAME || user.EMAIL }}">
+                            🗑️
                         </button>
+                        <span *ngIf="user.ROL === 'SUPER_ADMIN'" class="protected-badge">🔒</span>
                     </td>
                 </tr>
             </tbody>

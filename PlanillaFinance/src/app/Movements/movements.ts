@@ -6,16 +6,17 @@ import { NotificationService } from '../shared/notification.service';
 import { AuditService } from '../shared/audit.service';
 
 interface Movement {
-    _id?: string; // actually subdoc id usually, but here we might need parent emp id + subdoc id logic
+    _id?: string;
     empleadoId: string;
     empleadoNombre: string;
     empleadoCargo: string;
     tipo: string;
     fecha: string;
+    fechaRegistro?: string;
     monto: number;
     cuotas?: number;
+    totalCuotas?: number;
     observacion?: string;
-    // Helper to identify original array item
     originalIndex?: number;
 }
 
@@ -32,13 +33,16 @@ export class MovimientosComponent {
     filteredMovements: Movement[] = [];
 
     searchTerm: string = '';
+    selectedEmployeeId: string = '';
     filterType: string = '';
-    selectedMonth: string = new Date().toISOString().slice(0, 7); // Default current month YYYY-MM
+    selectedMonth: string = new Date().toISOString().slice(0, 7);
 
     totalAdelantos: number = 0;
     adelantosPorEmpleado: { nombre: string; total: number }[] = [];
 
     showModal: boolean = false;
+    showDetailsModal: boolean = false;
+    selectedMovement: Movement | null = null;
     newMovement = {
         empleadoId: '',
         tipo: 'ADELANTO',
@@ -57,7 +61,6 @@ export class MovimientosComponent {
 
     async loadData() {
         try {
-            // Fetch Employees first (for name mapping)
             const empResponse = await fetch(API_URL + '/api/empleados', {
                 headers: getAuthHeaders()
             });
@@ -68,12 +71,9 @@ export class MovimientosComponent {
             let query = '';
             if (this.selectedMonth) {
                 const [year, month] = this.selectedMonth.split('-');
-                // Convert month to number to remove leading zero if necessary (e.g., '03' -> 3), 
-                // though the backend handles padded strings too.
                 query = `?mes=${parseInt(month)}&anio=${year}`;
             }
 
-            // Fetch all movements in parallel
             const [adelantosRes, prestamosRes, movilidadRes, viaticosRes] = await Promise.all([
                 fetch(API_URL + `/api/adelantos${query}`, { headers: getAuthHeaders() }),
                 fetch(API_URL + `/api/prestamos${query}`, { headers: getAuthHeaders() }),
@@ -96,40 +96,79 @@ export class MovimientosComponent {
     processMovements(adelantos: any[], prestamos: any[], movilidad: any[], viaticos: any[]) {
         this.allMovements = [];
 
-        // Helper to find employee name
         const getEmpInfo = (item: any) => {
             if (item.nombreEmpleado) return { name: item.nombreEmpleado, cargo: item.cargo || '-' };
             const emp = this.employees.find(e => String(e._id) === String(item.empleadoId) || String(e.dni) === String(item.dni));
             return emp ? { name: `${emp.nombre} ${emp.apellidos}`, cargo: emp.cargo } : { name: 'Desconocido', cargo: '-' };
         };
 
-        // Map Adelantos
         adelantos.forEach(item => {
             const info = getEmpInfo(item);
+            let displayFecha = item.fechaSolicitud || item.fecha || item.createdAt;
+            const targetMes = item.mes || item.Mes;
+            const targetAnio = item.anio || item.Anio;
+
+            if (targetMes) {
+                const day = displayFecha ? new Date(displayFecha).getUTCDate().toString().padStart(2, '0') : '01';
+                let monthStr = targetMes.toString();
+                if (monthStr.includes('-')) {
+                    displayFecha = `${monthStr}-${day}`;
+                } else {
+                    const year = targetAnio || new Date().getFullYear();
+                    displayFecha = `${year}-${monthStr.padStart(2, '0')}-${day}`;
+                }
+            } else if (this.selectedMonth) {
+                if (!displayFecha || !displayFecha.startsWith(this.selectedMonth)) {
+                    const day = displayFecha ? new Date(displayFecha).getUTCDate().toString().padStart(2, '0') : '01';
+                    displayFecha = `${this.selectedMonth}-${day}`;
+                }
+            }
+
             this.allMovements.push({
                 _id: item._id,
                 empleadoId: item.empleadoId,
                 empleadoNombre: info.name,
                 empleadoCargo: info.cargo,
                 tipo: 'ADELANTO',
-                fecha: item.fechaSolicitud || item.fecha || item.createdAt,
+                fecha: displayFecha,
                 monto: item.monto,
                 observacion: item.observaciones || item.observacion || item.motivo
             });
         });
 
-        // Map Prestamos
         prestamos.forEach(item => {
             const info = getEmpInfo(item);
+            let displayFecha = item.fechaSolicitud || item.fecha || item.createdAt;
+            const targetMes = item.mes || item.Mes;
+            const targetAnio = item.anio || item.Anio;
+
+            if (targetMes) {
+                const day = displayFecha ? new Date(displayFecha).getUTCDate().toString().padStart(2, '0') : '01';
+                let monthStr = targetMes.toString();
+                if (monthStr.includes('-')) {
+                    displayFecha = `${monthStr}-${day}`;
+                } else {
+                    const year = targetAnio || new Date().getFullYear();
+                    displayFecha = `${year}-${monthStr.padStart(2, '0')}-${day}`;
+                }
+            } else if (this.selectedMonth) {
+                if (!displayFecha || !displayFecha.startsWith(this.selectedMonth)) {
+                    const day = displayFecha ? new Date(displayFecha).getUTCDate().toString().padStart(2, '0') : '01';
+                    displayFecha = `${this.selectedMonth}-${day}`;
+                }
+            }
+
             this.allMovements.push({
                 _id: item._id,
                 empleadoId: item.empleadoId,
                 empleadoNombre: info.name,
                 empleadoCargo: info.cargo,
                 tipo: 'PRESTAMO',
-                fecha: item.fechaSolicitud || item.fecha || item.createdAt,
+                fecha: displayFecha,
+                fechaRegistro: item.fecha,
                 monto: item.monto,
-                cuotas: item.cuotaNumero,
+                cuotas: item.cuotaNumero || item.NumeroAdelanto,
+                totalCuotas: item.totalCuotas,
                 observacion: item.observaciones || item.observacion
             });
         });
@@ -171,8 +210,12 @@ export class MovimientosComponent {
 
     filterMovements() {
         this.filteredMovements = this.allMovements.filter(m => {
-            const matchesSearch = (m.empleadoNombre || '').toLowerCase().includes(this.searchTerm.toLowerCase()) ||
-                (m.observacion || '').toLowerCase().includes(this.searchTerm.toLowerCase());
+            const matchesSearch = (m.observacion || '').toLowerCase().includes(this.searchTerm.toLowerCase());
+
+            // Filtro por empleado (por nombre exacto o ID)
+            const matchesEmployee = this.selectedEmployeeId ?
+                (m.empleadoNombre === this.selectedEmployeeId) : true;
+
             const matchesType = this.filterType ? m.tipo === this.filterType : true;
 
             // Date Filter (Frontend fallback/additional check)
@@ -183,15 +226,15 @@ export class MovimientosComponent {
                 matchesMonth = false; // Filter is active, but record has no date
             }
 
-            return matchesSearch && matchesType && matchesMonth;
+            return matchesSearch && matchesEmployee && matchesType && matchesMonth;
         });
-        
+
         this.calculateTotals();
     }
 
     calculateTotals() {
         let adelantosFiltered = this.filteredMovements.filter(m => m.tipo === 'ADELANTO');
-        
+
         this.totalAdelantos = adelantosFiltered.reduce((sum, m) => sum + m.monto, 0);
 
         const map = new Map<string, number>();
@@ -206,9 +249,10 @@ export class MovimientosComponent {
 
     clearFilters() {
         this.searchTerm = '';
+        this.selectedEmployeeId = '';
         this.filterType = '';
-        this.selectedMonth = ''; // Clears the month/year filter
-        this.loadData(); // Re-fetch all data without the mes/anio filter
+        this.selectedMonth = new Date().toISOString().slice(0, 7);
+        this.loadData();
     }
 
     openModal() {
@@ -257,7 +301,7 @@ export class MovimientosComponent {
             case 'PRESTAMO': endpoint = 'prestamos'; break;
             case 'MOVILIDAD': endpoint = 'movilidad'; break;
             case 'VIATICOS': endpoint = 'viaticos'; break;
-            default: 
+            default:
                 this.notification.error('Tipo de movimiento no soportado');
                 return;
         }
@@ -287,8 +331,29 @@ export class MovimientosComponent {
         }
     }
 
-    async deleteMovement(move: Movement) {
-        if (!await this.notification.confirm(`¿Estás seguro de eliminar este ${move.tipo.toLowerCase()}?`, 'Confirmar Eliminación')) return;
+    viewDetails(move: Movement) {
+        this.selectedMovement = move;
+        this.showDetailsModal = true;
+    }
+
+    closeDetailsModal() {
+        this.showDetailsModal = false;
+        this.selectedMovement = null;
+    }
+
+    async deleteMovement(move: any) {
+        const isPrestamo = move.tipo === 'PRESTAMO';
+        const checkboxLabel = isPrestamo ? '¿Borrar todas las cuotas asociadas a este préstamo?' : undefined;
+
+        const result = await this.notification.confirm(
+            `¿Estás seguro de eliminar este ${move.tipo.toLowerCase()}?`,
+            'Confirmar Eliminación',
+            'Confirmar',
+            'Cancelar',
+            checkboxLabel
+        );
+
+        if (!result.confirmed) return;
 
         let endpoint = '';
         switch (move.tipo) {
@@ -300,18 +365,23 @@ export class MovimientosComponent {
         }
 
         try {
-            const response = await fetch(API_URL + `/api/${endpoint}/${move._id}`, {
+            const url = new URL(API_URL + `/api/${endpoint}/${move._id}`);
+            if (result.checkboxValue) {
+                url.searchParams.append('deleteAll', 'true');
+            }
+
+            const response = await fetch(url.toString(), {
                 method: 'DELETE',
                 headers: getAuthHeaders()
             });
 
             if (response.ok) {
                 this.audit.log(
-                    `Eliminó ${move.tipo.toLowerCase()}: ${move.empleadoNombre}`,
+                    `Eliminó ${move.tipo.toLowerCase()}${result.checkboxValue ? ' (TODAS LAS CUOTAS)' : ''}: ${move.empleadoNombre}`,
                     'Movimientos',
                     `Monto anterior: S/ ${move.monto}`
                 );
-                this.notification.success('Movimiento eliminado correctamente.');
+                this.notification.success(result.checkboxValue ? 'Préstamo completo eliminado.' : 'Movimiento eliminado correctamente.');
                 this.loadData();
             } else {
                 this.notification.error('No se pudo eliminar el movimiento.');

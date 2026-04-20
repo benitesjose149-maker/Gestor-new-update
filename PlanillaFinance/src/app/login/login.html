@@ -47,13 +47,12 @@
                 </label>
             </div>
 
-            <button type="submit" class="submit-btn" [disabled]="loginForm.invalid">Iniciar Sesión</button>
+            <button type="submit" class="submit-btn" [class.btn-disabled]="loginForm.invalid">Iniciar Sesión</button>
         </form>
 
         <div class="login-footer">
             <p>&copy; 2026 HWPeru. Todos los derechos reservados.</p>
         </div>
 
-        <!-- Registro deshabilitado por solicitud -->
     </div>
 </div>

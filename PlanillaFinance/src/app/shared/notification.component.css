@@ -31,10 +31,21 @@
     transform: scale(1.02);
 }
 
-.toast.success { border-left-color: #10b981; }
-.toast.error { border-left-color: #ef4444; }
-.toast.warning { border-left-color: #f59e0b; }
-.toast.info { border-left-color: #3b82f6; }
+.toast.success {
+    border-left-color: #10b981;
+}
+
+.toast.error {
+    border-left-color: #ef4444;
+}
+
+.toast.warning {
+    border-left-color: #f59e0b;
+}
+
+.toast.info {
+    border-left-color: #3b82f6;
+}
 
 .toast-icon {
     width: 36px;
@@ -46,10 +57,25 @@
     flex-shrink: 0;
 }
 
-.toast.success .toast-icon { background: #ecfdf5; color: #10b981; }
-.toast.error .toast-icon { background: #fef2f2; color: #ef4444; }
-.toast.warning .toast-icon { background: #fffbeb; color: #f59e0b; }
-.toast.info .toast-icon { background: #eff6ff; color: #3b82f6; }
+.toast.success .toast-icon {
+    background: #ecfdf5;
+    color: #10b981;
+}
+
+.toast.error .toast-icon {
+    background: #fef2f2;
+    color: #ef4444;
+}
+
+.toast.warning .toast-icon {
+    background: #fffbeb;
+    color: #f59e0b;
+}
+
+.toast.info .toast-icon {
+    background: #eff6ff;
+    color: #3b82f6;
+}
 
 .toast-icon svg {
     width: 20px;
@@ -78,6 +104,7 @@
         opacity: 0;
         transform: translateY(-40px) scale(0.9);
     }
+
     to {
         opacity: 1;
         transform: translateY(0) scale(1);
@@ -166,8 +193,13 @@
 }
 
 @keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
 }
 
 @keyframes zoomIn {
@@ -175,8 +207,43 @@
         opacity: 0;
         transform: scale(0.9) translateY(20px);
     }
+
     to {
         opacity: 1;
         transform: scale(1) translateY(0);
     }
+}
+
+/* Checkbox specific styling */
+.modal-checkbox-container {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 16px;
+    padding: 14px;
+    background: #f8fafc;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: background 0.2s;
+    border: 1px solid #e2e8f0;
+}
+
+.modal-checkbox-container:hover {
+    background: #f1f5f9;
+}
+
+.modal-checkbox-container input {
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+    margin: 0;
+}
+
+.modal-checkbox-container label {
+    font-size: 0.95rem;
+    color: #475569;
+    cursor: pointer;
+    margin: 0;
+    line-height: 1.4;
+    font-weight: 500;
 }

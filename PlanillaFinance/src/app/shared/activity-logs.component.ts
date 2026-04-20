@@ -85,6 +85,25 @@ import { AuditService } from './audit.service';
     .timeline {
       position: relative;
       padding-left: 2rem;
+      max-height: 400px;
+      overflow-y: auto;
+      padding-right: 1rem;
+    }
+
+    /* Custom scrollbar for timeline */
+    .timeline::-webkit-scrollbar {
+      width: 6px;
+    }
+    .timeline::-webkit-scrollbar-track {
+      background: #f1f5f9;
+      border-radius: 4px;
+    }
+    .timeline::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 4px;
+    }
+    .timeline::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
     }
 
     .timeline::before {
@@ -95,6 +114,7 @@ import { AuditService } from './audit.service';
       bottom: 0;
       width: 2px;
       background: #e2e8f0;
+      z-index: 0;
     }
 
     .timeline-item {
@@ -190,7 +210,7 @@ export class ActivityLogsComponent implements OnInit {
   logs: any[] = [];
   loading = false;
 
-  constructor(private audit: AuditService) {}
+  constructor(private audit: AuditService) { }
 
   ngOnInit() {
     this.loadLogs();

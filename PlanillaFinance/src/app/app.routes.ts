@@ -14,6 +14,7 @@ import { SettingsPermissionsComponent } from './settings/settings-permissions';
 import { authGuard } from './auth/auth.guard';
 import { VacationsComponent } from './vacations/vacations';
 import { AttendanceComponent } from './attendance/attendance';
+import { WhmcsHistoryComponent } from './whmcs-history/whmcs-history';
 export const routes: Routes = [
     { path: 'login', component: LoginComponent },
     {
@@ -28,6 +29,7 @@ export const routes: Routes = [
             { path: 'movements', component: MovimientosComponent },
             { path: 'historial-pago', component: HistorialPagoComponent },
             { path: 'finance', component: FinanceDashboardComponent },
+            { path: 'whmcs-history', component: WhmcsHistoryComponent },
             { path: 'vacations', component: VacationsComponent },
             { path: 'settings', component: SettingsPermissionsComponent },
             { path: '', redirectTo: '/login', pathMatch: 'full' },

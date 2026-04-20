@@ -81,7 +81,6 @@ export class VacationsComponent implements OnInit {
 
             if (empRes.ok) {
                 const allEmps = await empRes.json();
-                // Filter only Planilla employees and normalize IDs
                 this.employees = allEmps
                     .filter((e: any) => (e.tipoTrabajador || e.tipo_trabajador || '').toUpperCase() === 'PLANILLA')
                     .map((e: any) => ({
@@ -234,9 +233,8 @@ export class VacationsComponent implements OnInit {
         let count = 0;
         let cur = new Date(start);
 
-        // Count Monday to Friday, excluding the end date as per user request (Fri 13 to Fri 20 = 5 days)
         while (cur < end) {
-            const day = cur.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+            const day = cur.getDay();
             if (day !== 0 && day !== 6) {
                 count++;
             }
@@ -250,7 +248,6 @@ export class VacationsComponent implements OnInit {
     getDisplayStatus(vac: Vacation): string {
         if (vac.ESTADO === 'CANCELADO') return 'CANCELADO';
 
-        // Use a method that doesn't shift the date based on timezone
         const now = new Date();
         const year = now.getFullYear();
         const month = now.getMonth();

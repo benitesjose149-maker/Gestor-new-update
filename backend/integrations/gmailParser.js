@@ -14,12 +14,38 @@ export function parseBankEmail(subject, body, from, date) {
         if (parser.check()) {
             const result = parser.parse();
             if (result && result.monto > 0) {
+                result.codigoContable = guessAccountingCode(result.comercio, text);
                 return result;
             }
         }
     }
 
     return null;
+}
+
+function guessAccountingCode(comercio, text) {
+    const c = (comercio || '').toLowerCase();
+    const t = (text || '').toLowerCase();
+
+    if (c.includes('izipay') || c.includes('niubiz') || c.includes('vendemas') || c.includes('culqi') ||
+        c.includes('comision') || c.includes('interes') || c.includes('mantenimiento') ||
+        c.includes('paypal') || t.includes('comision') || t.includes('mantenimiento') || c.match(/bcp|interbank/)) {
+        return '67';
+    }
+    if (c.includes('amazon') || c.includes('aws') || c.includes('google') || c.includes('facebook') || c.includes('meta') ||
+        c.includes('claro') || c.includes('movistar') || c.includes('entel') || c.includes('bitel') ||
+        c.includes('telefonica') || c.includes('sedapal') || c.includes('enel') || c.includes('luz del sur') ||
+        c.includes('cálidda') || c.includes('hosting') || c.includes('adobe') || c.includes('microsoft')) {
+        return '63';
+    }
+    if (c.includes('sunat') || c.includes('pagos sunat') || c.includes('impuesto') || t.includes('sunat')) {
+        return '64';
+    }
+    if (t.includes('planilla') || t.includes('sueldo') || t.includes('quincena')) {
+        return '62';
+    }
+
+    return '65';
 }
 
 function isYapeEmail(from, subject, text) {
@@ -53,7 +79,7 @@ function parseYape(text, date) {
     if (isIncoming) return null;
 
     let comercio = 'Yape';
-    const comercioMatch = text.match(/(?:yapeaste\s+.*?a\s+|en\s+)([A-ZÁÉÍÓÚÑa-záéíóúñ\s\d\.]+)/i);
+    const comercioMatch = text.match(/(?:yapeaste\s+.*?a\s+|en\s+|pago\s+YAPE\s+a\s+|pago\s+a\s+)([A-ZÁÉÍÓÚÑa-záéíóúñ\s\d\.]+?)(?:\s+por|\s*$)/i);
     if (comercioMatch) {
         comercio = comercioMatch[1].trim().substring(0, 200);
     }
@@ -79,7 +105,7 @@ function parsePlin(text, date) {
     if (isIncoming) return null;
 
     let comercio = 'Plin';
-    const comercioMatch = text.match(/(?:a\s+|para\s+)([A-ZÁÉÍÓÚÑa-záéíóúñ\s\d\.]+)/i);
+    const comercioMatch = text.match(/(?:a\s+|para\s+|pago\s+PLIN\s+a\s+)([A-ZÁÉÍÓÚÑa-záéíóúñ\s\d\.]+?)(?:\s+por|\s*$)/i);
     if (comercioMatch) {
         comercio = comercioMatch[1].trim().substring(0, 200);
     }
@@ -95,7 +121,6 @@ function parsePlin(text, date) {
 }
 
 function parseBcp(text, date) {
-    // BCP patterns:
     const montoMatch = text.match(/(?:consumo|compra|pago|transferencia|operaci[oó]n)\s*.*?(?:S\/?|US\$|USD|\$)\s*([\d,]+\.?\d*)/i)
         || text.match(/por\s+(?:S\/?|US\$|USD|\$)\s*([\d,]+\.?\d*)/i)
         || text.match(/(?:S\/?|US\$|USD|\$)\s*([\d,]+\.?\d*)/i);
@@ -110,15 +135,18 @@ function parseBcp(text, date) {
 
     let comercio = 'BCP';
 
-    const regex1 = /en\s+([A-ZÁÉÍÓÚÑa-záéíóúñ0-9\s\.\-\*\&]+?)(?:\.|\n|\r|\s+por|\s+el\b)/i;
-    const regex2 = /(?:a\s+favor\s+de|para)\s+([A-ZÁÉÍÓÚÑa-záéíóúñ0-9\s\.\-\*\&]+?)(?:\.|\n|\r)/i;
+    const regex1 = /en\s+(?:el\s+establecimiento\s+)?([A-ZÁÉÍÓÚÑa-záéíóúñ0-9\s\.\-\*\&\(\)\_\/\@\,]+?)(?:\.|\n|\r|\s+por|\s+el\b)/i;
+    const regex2 = /(?:a\s+favor\s+de|para)\s+([A-ZÁÉÍÓÚÑa-záéíóúñ0-9\s\.\-\*\&\(\)\_\/\@\,]+?)(?:\.|\n|\r)/i;
+    const regex3 = /(?:Establecimiento|Comercio|Tienda|Empresa)\s*:\s*([^\n\r]+)/i;
 
     const m1 = text.match(regex1);
     const m2 = text.match(regex2);
+    const m3 = text.match(regex3);
 
     let tempComercio = '';
     if (m1 && m1[1]) tempComercio = m1[1].trim();
     else if (m2 && m2[1]) tempComercio = m2[1].trim();
+    else if (m3 && m3[1]) tempComercio = m3[1].trim();
 
     const lowerTmp = tempComercio.toLowerCase();
     if (tempComercio.length > 1 &&
@@ -126,11 +154,23 @@ function parseBcp(text, date) {
         !lowerTmp.includes('sorteos') &&
         lowerTmp !== 'name' &&
         lowerTmp !== 'ti' &&
+        !lowerTmp.startsWith('su tarjeta') &&
         lowerTmp !== 'tu cuenta') {
         comercio = tempComercio.substring(0, 200);
     } else {
-        const fallback = text.match(/(?:Empresa|Comercio)\s*:\s*([^\n\r]+)/i);
-        if (fallback) comercio = fallback[1].trim().substring(0, 200);
+        const fallback = text.match(/(?:Empresa|Comercio|Lugar|Vendido\s+por)\s*:\s*([^\n\r]+)/i);
+        if (fallback) {
+            comercio = fallback[1].trim().substring(0, 200);
+        } else if (text.includes('YAPE') && text.includes('a ')) {
+            const yapeMatch = text.match(/enviado\s+a\s+([^\n\r]+)/i);
+            if (yapeMatch) comercio = yapeMatch[1].trim().substring(0, 200);
+        }
+    }
+
+    if (comercio === 'BCP') {
+        console.warn('[Parser] No se pudo extraer comercio para mensaje BCP. Texto:', text.substring(0, 150).replace(/\n/g, ' '));
+    } else {
+        console.log(`[Parser] Comercio extraído: ${comercio}`);
     }
 
     return {
@@ -157,7 +197,7 @@ function parseInterbank(text, date) {
     if (/yape/i.test(text)) tipoEgreso = 'YAPE';
 
     let comercio = 'Interbank';
-    const comercioMatch = text.match(/(?:en\s+)([A-ZÁÉÍÓÚÑa-záéíóúñ\s\d\.\-\*]+?)(?:\s+por|\s+el|\s*$)/i);
+    const comercioMatch = text.match(/(?:en\s+|en\s+el\s+establecimiento\s+)([A-ZÁÉÍÓÚÑa-záéíóúñ\s\d\.\-\*\&\(\)\_\/\@\,]+?)(?:\s+por|\s+el|\s*$)/i);
     if (comercioMatch) {
         comercio = comercioMatch[1].trim().substring(0, 200);
     }
@@ -172,26 +212,19 @@ function parseInterbank(text, date) {
     };
 }
 
-/**
- * Extract plain text from Gmail message body.
- * Handles both base64url and HTML bodies.
- */
 export function extractTextFromMessage(message) {
     const payload = message.payload;
     if (!payload) return '';
 
-    // Simple plain text
     if (payload.mimeType === 'text/plain' && payload.body?.data) {
         return decodeBase64Url(payload.body.data);
     }
 
-    // Multipart — look for text/plain part
     if (payload.parts) {
         for (const part of payload.parts) {
             if (part.mimeType === 'text/plain' && part.body?.data) {
                 return decodeBase64Url(part.body.data);
             }
-            // Nested multipart
             if (part.parts) {
                 for (const subPart of part.parts) {
                     if (subPart.mimeType === 'text/plain' && subPart.body?.data) {
@@ -200,7 +233,6 @@ export function extractTextFromMessage(message) {
                 }
             }
         }
-        // Fallback: try HTML and strip tags
         for (const part of payload.parts) {
             if (part.mimeType === 'text/html' && part.body?.data) {
                 const html = decodeBase64Url(part.body.data);
@@ -209,7 +241,6 @@ export function extractTextFromMessage(message) {
         }
     }
 
-    // Direct HTML body
     if (payload.body?.data) {
         const html = decodeBase64Url(payload.body.data);
         return stripHtml(html);

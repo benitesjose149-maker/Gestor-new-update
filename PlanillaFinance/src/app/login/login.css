@@ -192,7 +192,7 @@ input.error {
     transform: translateY(1px);
 }
 
-.submit-btn:disabled {
+.submit-btn.btn-disabled {
     background-color: #9ca3af;
     cursor: not-allowed;
     transform: none;

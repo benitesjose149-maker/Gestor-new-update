@@ -95,10 +95,14 @@ app.get('/api/dashboard/stats', async (req, res) => {
 
         const financePool = await poolFinance;
         const unpaidRes = await financePool.request()
+            .input('unpaidMonth', mssql.Int, currentMonth)
+            .input('unpaidYear', mssql.Int, now.getFullYear())
             .query(`
                 SELECT TOP 20 WHMCS_InvoiceID, ClienteConcepto, MontoBruto, Fecha 
                 FROM FINANCE_INVOICES 
                 WHERE EstadoWHMCS = 'Unpaid'
+                AND MONTH(Fecha) = @unpaidMonth
+                AND YEAR(Fecha) = @unpaidYear
                 ORDER BY Fecha ASC
             `);
 
@@ -109,6 +113,32 @@ app.get('/api/dashboard/stats', async (req, res) => {
             vencimiento: inv.Fecha ? new Date(inv.Fecha).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A'
         }));
 
+        // Caja Virtual pendientes (solo mes actual)
+        const cajaVirtualRes = await financePool.request()
+            .input('cvMonth', mssql.Int, currentMonth)
+            .input('cvYear', mssql.Int, now.getFullYear())
+            .query(`
+                SELECT WHMCS_InvoiceID, ClienteConcepto, MontoBruto, Comision, DepositoSalida, Fecha, CuentaDebito
+                FROM FINANCE_INVOICES 
+                WHERE EstadoLocal = 'Pendiente'
+                AND Banco = 'Caja Virtual'
+                AND MONTH(Fecha) = @cvMonth
+                AND YEAR(Fecha) = @cvYear
+                ORDER BY Fecha DESC
+            `);
+
+        const pendingCajaVirtual = cajaVirtualRes.recordset.map(inv => ({
+            id: inv.WHMCS_InvoiceID,
+            cliente: inv.ClienteConcepto,
+            monto: inv.MontoBruto,
+            comision: inv.Comision || 0,
+            neto: inv.DepositoSalida || inv.MontoBruto,
+            fecha: inv.Fecha ? new Date(inv.Fecha).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A',
+            cuentaDebito: inv.CuentaDebito
+        }));
+
+        const totalPendingCaja = pendingCajaVirtual.reduce((sum, inv) => sum + (Number(inv.monto) || 0), 0);
+
         res.json({
             stats: [
                 { title: 'Total Empleados', value: activeCount.toString(), change: 'Activos actualmente', icon: '👥', color: 'blue' },
@@ -118,7 +148,9 @@ app.get('/api/dashboard/stats', async (req, res) => {
             ],
             birthdays: birthdays,
             contractExpirations: contractExpirations,
-            unpaidInvoices: unpaidInvoices
+            unpaidInvoices: unpaidInvoices,
+            pendingCajaVirtual: pendingCajaVirtual,
+            totalPendingCaja: totalPendingCaja
         });
     } catch (error) {
         console.error('Error al obtener dashboard stats:', error);
@@ -809,14 +841,14 @@ app.get('/api/planilla-borrador', async (req, res) => {
                    pb.OBSERVACIONES as BORRADOR_OBSERVACIONES,
                    (SELECT ISNULL(SUM(Monto), 0) FROM ADVANCES 
                     WHERE NombreEmpleado = (e.NOMBRE + ' ' + e.APELLIDOS) 
-                    AND Tipo = 'ADELANTO' AND Mes = @queryMes) as TOTAL_ADELANTO,
+                    AND Tipo = 'ADELANTO' AND (Mes = @mes OR Mes = @queryMes) AND (Anio = @anio OR Anio IS NULL)) as TOTAL_ADELANTO,
                    (SELECT ISNULL(SUM(Monto), 0) FROM ADVANCES 
                     WHERE NombreEmpleado = (e.NOMBRE + ' ' + e.APELLIDOS) 
-                    AND Tipo = 'PRESTAMO' AND Mes = @queryMes) as TOTAL_PRESTAMO,
+                    AND Tipo = 'PRESTAMO' AND (Mes = @mes OR Mes = @queryMes) AND (Anio = @anio OR Anio IS NULL)) as TOTAL_PRESTAMO,
                     (SELECT TOP 1 CAST(NumeroAdelanto AS VARCHAR) + '/' + ISNULL(CAST(TotalCuotas AS VARCHAR), '?') 
                      FROM ADVANCES 
                      WHERE NombreEmpleado = (e.NOMBRE + ' ' + e.APELLIDOS) 
-                     AND Tipo = 'PRESTAMO' AND Mes = @queryMes
+                     AND Tipo = 'PRESTAMO' AND (Mes = @mes OR Mes = @queryMes) AND (Anio = @anio OR Anio IS NULL)
                      ORDER BY CreatedAt DESC) as CUOTA_DETALLE,
                    ISNULL(pb.ESTADO, 'PENDIENTE') as ESTADO
             FROM EMPLOYEES e
@@ -1042,9 +1074,8 @@ app.get('/api/adelantos', async (req, res) => {
                 SELECT * FROM ADVANCES 
                 WHERE Tipo = 'ADELANTO'
                 AND (
-                    (Mes = @mesStr OR Mes = @mesPad OR Mes = @yearMonth) 
-                    AND (Anio = @anio OR Anio IS NULL)
-                    OR (MONTH(CreatedAt) = ${mes} AND YEAR(CreatedAt) = ${anio})
+                    (Mes IS NOT NULL AND (Mes = @mesStr OR Mes = @mesPad OR Mes = @yearMonth) AND (Anio = @anio OR Anio IS NULL))
+                    OR (Mes IS NULL AND MONTH(CreatedAt) = ${mes} AND YEAR(CreatedAt) = ${anio})
                 )
                 ORDER BY CreatedAt DESC
             `);
@@ -1061,7 +1092,9 @@ app.get('/api/adelantos', async (req, res) => {
             departamento: r.Departamento,
             fecha: r.CreatedAt,
             esPrestamo: r.EsPrestamo,
-            numeroAdelanto: r.NumeroAdelanto
+            numeroAdelanto: r.NumeroAdelanto,
+            mes: r.Mes,
+            anio: r.Anio
         }));
         res.json(mapped);
     } catch (error) {
@@ -1074,7 +1107,7 @@ app.post('/api/adelantos', async (req, res) => {
     try {
         const pool = await poolPlanilla;
         const data = req.body;
-        const now = new Date();
+        const now = data.fecha ? new Date(data.fecha + 'T12:00:00Z') : new Date();
         const request = pool.request();
         request.input('dni', mssql.NVarChar, data.dni);
         request.input('monto', mssql.Decimal(18, 2), data.monto);
@@ -1127,9 +1160,8 @@ app.get('/api/prestamos', async (req, res) => {
                 SELECT * FROM ADVANCES 
                 WHERE Tipo = 'PRESTAMO' 
                 AND (
-                    (Mes = @mesPad OR Mes = @yearMonth) 
-                    AND (Anio = @anio OR Anio IS NULL)
-                    OR (MONTH(CreatedAt) = ${mes} AND YEAR(CreatedAt) = ${anio})
+                    (Mes IS NOT NULL AND (Mes = @mesPad OR Mes = @yearMonth) AND (Anio = @anio OR Anio IS NULL))
+                    OR (Mes IS NULL AND MONTH(CreatedAt) = ${mes} AND YEAR(CreatedAt) = ${anio})
                 )
                 ORDER BY CreatedAt DESC
             `);
@@ -1144,7 +1176,10 @@ app.get('/api/prestamos', async (req, res) => {
             cargo: r.Cargo,
             fecha: r.CreatedAt,
             cuotaNumero: r.NumeroAdelanto,
-            esCuota: r.EsCuota
+            totalCuotas: r.TotalCuotas,
+            esCuota: r.EsCuota,
+            mes: r.Mes,
+            anio: r.Anio
         }));
         res.json(mapped);
     } catch (error) {
@@ -1156,7 +1191,7 @@ app.post('/api/prestamos', async (req, res) => {
     try {
         const pool = await poolPlanilla;
         const data = req.body;
-        const now = new Date();
+        const now = data.fecha ? new Date(data.fecha + 'T12:00:00Z') : new Date();
         const cuotas = parseInt(data.cuotas) || 1;
         const montoTotal = parseFloat(data.monto);
         const montoPorCuota = Math.round((montoTotal / cuotas) * 100) / 100;
@@ -1193,6 +1228,47 @@ app.post('/api/prestamos', async (req, res) => {
     }
 });
 
+app.delete('/api/prestamos/:id', async (req, res) => {
+    try {
+        const pool = await poolPlanilla;
+        const id = req.params.id;
+        const deleteAll = req.query.deleteAll === 'true';
+
+        if (deleteAll) {
+            const refResult = await pool.request()
+                .input('id', mssql.Int, id)
+                .query("SELECT EmpleadoNumId, Monto, ISNULL(Observaciones, '') as Obs, TotalCuotas, CAST(CreatedAt as DATE) as DateCreation FROM ADVANCES WHERE Id = @id");
+
+            if (refResult.recordset.length > 0) {
+                const ref = refResult.recordset[0];
+                await pool.request()
+                    .input('dni', mssql.NVarChar, ref.EmpleadoNumId ? ref.EmpleadoNumId.toString() : '')
+                    .input('monto', mssql.Decimal(18, 2), ref.Monto)
+                    .input('obs', mssql.NVarChar, ref.Obs)
+                    .input('totalCuotas', mssql.Int, ref.TotalCuotas)
+                    .input('dateCreation', mssql.Date, ref.DateCreation)
+                    .query(`
+                        DELETE FROM ADVANCES 
+                        WHERE Tipo = 'PRESTAMO' 
+                        AND EmpleadoNumId = @dni 
+                        AND Monto = @monto 
+                        AND ISNULL(Observaciones, '') = @obs 
+                        AND TotalCuotas = @totalCuotas 
+                        AND CAST(CreatedAt as DATE) = @dateCreation
+                    `);
+            }
+        } else {
+            await pool.request()
+                .input('id', mssql.Int, id)
+                .query('DELETE FROM ADVANCES WHERE Id = @id');
+        }
+        res.json({ message: 'Eliminado de SQL' });
+    } catch (error) {
+        console.error('Error al eliminar prestamo:', error);
+        res.status(500).json({ error: 'Error al eliminar' });
+    }
+});
+
 app.get('/api/movilidad', async (req, res) => {
     try {
         const pool = await poolPlanilla;
@@ -1209,9 +1285,8 @@ app.get('/api/movilidad', async (req, res) => {
                 SELECT * FROM ADVANCES 
                 WHERE Tipo = 'MOVILIDAD' 
                 AND (
-                    (Mes = @mesPad OR Mes = @yearMonth) 
-                    AND (Anio = @anio OR Anio IS NULL)
-                    OR (MONTH(CreatedAt) = ${mes} AND YEAR(CreatedAt) = ${anio})
+                    (Mes IS NOT NULL AND (Mes = @mesPad OR Mes = @yearMonth) AND (Anio = @anio OR Anio IS NULL))
+                    OR (Mes IS NULL AND MONTH(CreatedAt) = ${mes} AND YEAR(CreatedAt) = ${anio})
                 )
                 ORDER BY CreatedAt DESC
             `);
@@ -1223,7 +1298,9 @@ app.get('/api/movilidad', async (req, res) => {
             observaciones: r.Observaciones,
             estado: r.Estado,
             nombreEmpleado: r.NombreEmpleado,
-            fecha: r.CreatedAt
+            fecha: r.CreatedAt,
+            mes: r.Mes,
+            anio: r.Anio
         }));
         res.json(mapped);
     } catch (error) {
@@ -1235,7 +1312,7 @@ app.post('/api/movilidad', async (req, res) => {
     try {
         const pool = await poolPlanilla;
         const data = req.body;
-        const now = new Date();
+        const now = data.fecha ? new Date(data.fecha + 'T12:00:00Z') : new Date();
         const request = pool.request();
         request.input('dni', mssql.NVarChar, data.dni);
         request.input('monto', mssql.Decimal(18, 2), data.monto);
@@ -1257,6 +1334,18 @@ app.post('/api/movilidad', async (req, res) => {
     }
 });
 
+app.delete('/api/movilidad/:id', async (req, res) => {
+    try {
+        const pool = await poolPlanilla;
+        await pool.request()
+            .input('id', mssql.Int, req.params.id)
+            .query('DELETE FROM ADVANCES WHERE Id = @id');
+        res.json({ message: 'Eliminado de SQL' });
+    } catch (error) {
+        res.status(500).json({ error: 'Error al eliminar' });
+    }
+});
+
 app.get('/api/viaticos', async (req, res) => {
     try {
         const pool = await poolPlanilla;
@@ -1273,9 +1362,8 @@ app.get('/api/viaticos', async (req, res) => {
                 SELECT * FROM ADVANCES 
                 WHERE Tipo = 'VIATICO' 
                 AND (
-                    (Mes = @mesPad OR Mes = @yearMonth) 
-                    AND (Anio = @anio OR Anio IS NULL)
-                    OR (MONTH(CreatedAt) = ${mes} AND YEAR(CreatedAt) = ${anio})
+                    (Mes IS NOT NULL AND (Mes = @mesPad OR Mes = @yearMonth) AND (Anio = @anio OR Anio IS NULL))
+                    OR (Mes IS NULL AND MONTH(CreatedAt) = ${mes} AND YEAR(CreatedAt) = ${anio})
                 )
                 ORDER BY CreatedAt DESC
             `);
@@ -1287,7 +1375,9 @@ app.get('/api/viaticos', async (req, res) => {
             observaciones: r.Observaciones,
             estado: r.Estado,
             nombreEmpleado: r.NombreEmpleado,
-            fecha: r.CreatedAt
+            fecha: r.CreatedAt,
+            mes: r.Mes,
+            anio: r.Anio
         }));
         res.json(mapped);
     } catch (error) {
@@ -1299,7 +1389,7 @@ app.post('/api/viaticos', async (req, res) => {
     try {
         const pool = await poolPlanilla;
         const data = req.body;
-        const now = new Date();
+        const now = data.fecha ? new Date(data.fecha + 'T12:00:00Z') : new Date();
         const request = pool.request();
         request.input('dni', mssql.NVarChar, data.dni);
         request.input('monto', mssql.Decimal(18, 2), data.monto);
@@ -1318,6 +1408,18 @@ app.post('/api/viaticos', async (req, res) => {
         res.status(201).json({ message: 'Viatico guardado' });
     } catch (error) {
         res.status(500).json({ error: 'Error al guardar viatico' });
+    }
+});
+
+app.delete('/api/viaticos/:id', async (req, res) => {
+    try {
+        const pool = await poolPlanilla;
+        await pool.request()
+            .input('id', mssql.Int, req.params.id)
+            .query('DELETE FROM ADVANCES WHERE Id = @id');
+        res.json({ message: 'Eliminado de SQL' });
+    } catch (error) {
+        res.status(500).json({ error: 'Error al eliminar' });
     }
 });
 
@@ -1691,7 +1793,6 @@ export async function syncWhmcsInvoices() {
                                 Pagado = @pagado, 
                                 MontoBruto = @total,
                                 DepositoSalida = @pagado,
-                                EstadoLocal = 'Conciliado',
                                 Banco = @banco,
                                 CuentaDebito = @cuentaDebito,
                                 UpdatedAt = @now
@@ -1700,7 +1801,7 @@ export async function syncWhmcsInvoices() {
                         ELSE
                         BEGIN
                             INSERT INTO FINANCE_INVOICES (WHMCS_InvoiceID, Fecha, ClienteConcepto, NumFactura, MontoBruto, EstadoWHMCS, Pagado, DepositoSalida, Moneda, EstadoLocal, Banco, CuentaDebito, TipoMovimiento, CodigoContable, CreatedAt, UpdatedAt)
-                            VALUES (@whmcsId, @fecha, @cliente, @numFactura, @total, @estado, @pagado, @pagado, @moneda, 'Conciliado', @banco, @cuentaDebito, @tipoMovimiento, @codContable, @now, @now)
+                            VALUES (@whmcsId, @fecha, @cliente, @numFactura, @total, @estado, @pagado, @pagado, @moneda, CASE WHEN @cuentaDebito = 'Izipay por cobrar' THEN 'Pendiente' ELSE 'Conciliado' END, @banco, @cuentaDebito, @tipoMovimiento, @codContable, @now, @now)
                         END
                     `);
                     syncedCount++;
@@ -1750,7 +1851,7 @@ app.get('/api/whmcs/invoices', async (req, res) => {
                 FROM FINANCE_INVOICES 
                 WHERE ( (MONTH(Fecha) = @month AND YEAR(Fecha) = @year) 
                         OR (MONTH(UpdatedAt) = @month AND YEAR(UpdatedAt) = @year) )
-                AND EstadoLocal = 'Conciliado'
+                AND EstadoLocal IN ('Conciliado', 'Pendiente')
             `);
 
         const totalRecords = countResult.recordset[0].total;
@@ -1765,7 +1866,7 @@ app.get('/api/whmcs/invoices', async (req, res) => {
                 SELECT * FROM FINANCE_INVOICES 
                 WHERE ( (MONTH(Fecha) = @month AND YEAR(Fecha) = @year) 
                         OR (MONTH(UpdatedAt) = @month AND YEAR(UpdatedAt) = @year) )
-                AND EstadoLocal = 'Conciliado'
+                AND EstadoLocal IN ('Conciliado', 'Pendiente')
                 ORDER BY Fecha DESC
                 OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
             `);
@@ -2291,5 +2392,5 @@ process.on('unhandledRejection', (reason, promise) => {
 process.on('uncaughtException', (err) => {
     console.error('UNCAUGHT_EXCEPTION:', err);
     if (err && err.stack) console.error(err.stack);
-    process.exit(1); // Standard practice to exit on uncaught exception
+    process.exit(1);
 });
