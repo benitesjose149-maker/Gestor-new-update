@@ -25,11 +25,11 @@ const __dirname = path.dirname(__filename);
 
 const corsOptions = {
     origin: (origin, callback) => {
-        const allowedOrigins = process.env.CORS_ORIGIN 
-            ? process.env.CORS_ORIGIN.split(',').map(o => o.trim()) 
+        const allowedOrigins = process.env.CORS_ORIGIN
+            ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
             : [];
         const isLocalhost = origin && (origin.includes('localhost') || origin.includes('127.0.0.1'));
-        
+
         if (!origin || allowedOrigins.includes(origin) || isLocalhost) {
             callback(null, true);
         } else {
@@ -553,12 +553,19 @@ app.get('/api/admin/logs', async (req, res) => {
 app.get('/api/empleados', async (req, res) => {
     try {
         const pool = await poolPlanilla;
-        const result = await pool.request().query('SELECT * FROM EMPLOYEES WHERE ACTIVO = 1 OR ACTIVO IS NULL');
-        const empleados = result.recordset.map(emp => ({
+        const result = await pool.request().query('SELECT * FROM EMPLOYEES');
+
+        console.log(`[DB] Consulta /api/empleados: ${result.recordset.length} registros totales en tabla.`);
+
+        const empleadosActivos = result.recordset.filter(emp => emp.ACTIVO === 1 || emp.ACTIVO === true || emp.ACTIVO === null);
+
+        console.log(`[DB] Empleados activos después de filtro: ${empleadosActivos.length}`);
+
+        const empleados = empleadosActivos.map(emp => ({
             _id: emp.ID_EMPLOYEE,
             id: emp.ID_EMPLOYEE,
-            nombre: emp.NOMBRE,
-            apellidos: emp.APELLIDOS,
+            nombre: emp.NOMBRE || 'Sin Nombre',
+            apellidos: emp.APELLIDOS || '',
             dni: emp.DNI,
             sexo: emp.GENERO,
             nacionalidad: emp.NACIONALIDAD,
@@ -586,10 +593,14 @@ app.get('/api/empleados', async (req, res) => {
             exitTime: emp.EXIT_TIME,
             estado: 'Activo'
         }));
+
         res.json(empleados);
     } catch (error) {
         console.error('Error al obtener empleados de SQL:', error);
-        res.status(500).json({ error: 'Error al obtener empleados' });
+        res.status(500).json({
+            error: 'Error al obtener empleados',
+            details: error.message
+        });
     }
 });
 

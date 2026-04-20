@@ -48,37 +48,39 @@ export class AttendanceComponent implements OnInit {
         try {
             console.log('%c[Attendance] 📡 Iniciando carga de datos...', 'color: #00bcd4; font-weight: bold;');
             const todayStr = new Date().toISOString().split('T')[0];
+            const timestamp = new Date().getTime(); // Rompe-caches
 
-            // Pasamos a peticiones secuenciales para ver exactamente cuál falla
             console.log('[Attendance] Solicitando empleados...');
-            const empRes = await fetch(`${API_URL}/api/empleados`, { headers: getAuthHeaders() });
+            const empRes = await fetch(`${API_URL}/api/empleados?t=${timestamp}`, { headers: getAuthHeaders() });
             console.log('[Attendance] Empleados Status:', empRes.status);
-            
+
             if (empRes.ok) {
                 this.employees = await empRes.json();
+                console.log('%c[Attendance] 📦 DATOS RECIBIDOS DEL SERVIDOR:', 'color: #ff9800;', this.employees);
                 console.log(`%c[Attendance] ✅ ${this.employees.length} empleados cargados`, 'color: #4caf50;');
+
+                // --- CAMBIO CLAVE: Procesamos empleados de inmediato para que salgan en pantalla ---
+                this.processRealLogs([]); // Los mostramos primero sin marcas
             } else {
                 const errText = await empRes.text();
                 console.error('[Attendance] ❌ Error en empleados:', empRes.status, errText);
             }
 
             console.log('[Attendance] Solicitando marcas del biométrico...');
-            const logsRes = await fetch(`${API_URL}/api/attendance/logs?date=${todayStr}`, { headers: getAuthHeaders() });
-            console.log('[Attendance] Marcas Status:', logsRes.status);
+            const logsRes = await fetch(`${API_URL}/api/attendance/logs?date=${todayStr}&t=${timestamp}`, { headers: getAuthHeaders() });
 
-            const logs = logsRes.ok ? await logsRes.json() : [];
-            console.log(`[Attendance] 📊 ${logs.length} marcas encontradas para hoy`);
-
-            this.processRealLogs(logs);
+            if (logsRes.ok) {
+                const logs = await logsRes.json();
+                console.log(`[Attendance] 📊 ${logs.length} marcas encontradas para hoy`);
+                this.processRealLogs(logs); // Actualizamos con las marcas reales
+            }
         } catch (error) {
             console.error('%c[Attendance] 🚨 ERROR CRÍTICO:', 'color: white; background: red; padding: 5px;', error);
         }
     }
-
     processRealLogs(logs: any[]) {
         const attendanceMap = new Map<number, any>();
 
-        // Initialize everyone as 'Falta' based on active employees
         this.employees.forEach(emp => {
             const key = emp.biometricId !== null && emp.biometricId !== undefined ? emp.biometricId : emp.id;
             attendanceMap.set(key, {
@@ -135,14 +137,10 @@ export class AttendanceComponent implements OnInit {
             emp.totalHours = this.calculateWorkedHours(emp.clockIn, emp.clockOut);
             return emp;
         });
-
         this.attendanceData = finalData;
         this.calculateStats(this.attendanceData);
         this.filterData();
     }
-
-
-
     convertToMinutes(time: string): number {
         if (time === '-- : --') return 0;
 
@@ -154,13 +152,11 @@ export class AttendanceComponent implements OnInit {
 
         return (hours * 60) + minutes;
     }
-
     calculateWorkedHours(clockIn: string, clockOut: string): string {
 
         if (clockIn === '-- : --' || clockOut === '-- : --') {
             return '0h 0m';
         }
-
         const inMinutes = this.convertToMinutes(clockIn);
         const outMinutes = this.convertToMinutes(clockOut);
 
@@ -178,7 +174,7 @@ export class AttendanceComponent implements OnInit {
 
     openEmployeeModal(emp: any) {
         this.selectedEmployee = emp;
-        this.selectedEmployeeHistory = []; // Estará disponible cuando se implemente la API de historial
+        this.selectedEmployeeHistory = [];
         this.isModalOpen = true;
     }
 
@@ -254,10 +250,12 @@ export class AttendanceComponent implements OnInit {
 
 
     calculateStats(dataToProcess: any[]) {
-        this.totalEmployees = dataToProcess.length;
+        // Aseguramos que si no hay marcas procesadas, al menos muestre el total de empleados reales
+        this.totalEmployees = dataToProcess.length > 0 ? dataToProcess.length : this.employees.length;
+
         this.presentToday = dataToProcess.filter(e => e.status === 'Puntual' || e.status === 'Tarde' || e.status === 'Justificado').length;
         this.lateToday = dataToProcess.filter(e => e.status === 'Tarde').length;
-        this.absentToday = dataToProcess.filter(e => e.status === 'Falta').length;
+        this.absentToday = this.totalEmployees - this.presentToday;
     }
 
     filterData() {
