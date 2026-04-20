@@ -8,9 +8,14 @@
 
 .attendance-header {
     display: flex;
-    justify-content: space-between;
-    align-items: flex-end;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.5rem;
     margin-bottom: 2.5rem;
+}
+
+.header-titles {
+    text-align: center;
 }
 
 .header-titles h1 {
@@ -19,10 +24,12 @@
     margin: 0;
     color: #0f172a;
     letter-spacing: -0.5px;
+    text-align: center;
 }
 
 .header-titles p {
     margin: 0.25rem 0 0;
+    text-align: center;
     color: #64748b;
     font-size: 1rem;
 }
@@ -90,9 +97,11 @@
     backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.5);
     border-radius: 20px;
-    padding: 1.5rem;
+    padding: 2rem 1.5rem;
     display: flex;
+    flex-direction: column;
     align-items: center;
+    justify-content: center;
     gap: 1.25rem;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
     transition: box-shadow 0.2s ease;
@@ -132,17 +141,26 @@
     color: #dc2626;
 }
 
+.widget-info {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
 .widget-info h3 {
     margin: 0;
     font-size: 0.9rem;
     color: #64748b;
     font-weight: 500;
+    text-align: center;
 }
 
 .widget-value {
     font-size: 1.8rem;
     font-weight: 800;
     color: #0f172a;
+    display: block;
+    text-align: center;
 }
 
 .table-container {
@@ -160,7 +178,7 @@
 }
 
 .attendance-table th {
-    text-align: left;
+    text-align: center;
     padding: 1rem;
     font-weight: 600;
     color: #64748b;
