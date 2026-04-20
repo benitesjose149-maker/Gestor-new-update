@@ -54,12 +54,10 @@
     letter-spacing: 0.5px;
 }
 
-.logo-icon {
-    background-color: #0f172a;
-    color: white;
-    padding: 0.2rem 0.4rem;
+.logo-img {
+    height: 32px;
+    width: auto;
     border-radius: 4px;
-    font-size: 0.8rem;
 }
 
 .toggle-btn {
