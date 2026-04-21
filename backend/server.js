@@ -7,7 +7,6 @@ import { poolPlanilla, poolFinance } from './config/dbSql.js';
 import mssql from 'mssql';
 import path from 'path';
 import { fileURLToPath } from 'url';
-
 import http from 'http';
 import dniRoutes from './routes/dniRoutes.js';
 import gmailRoutes from './integrations/gmailRoutes.js';
@@ -16,7 +15,7 @@ import demoRoutes from './routes/endpoint-demo-test.js';
 const app = express();
 app.set('trust proxy', true);
 
-console.log('[DEBUG] Backend starting initialization...');
+const pendingCommands = new Map();
 
 
 
@@ -33,7 +32,6 @@ const corsOptions = {
         if (!origin || allowedOrigins.includes(origin) || isLocalhost) {
             callback(null, true);
         } else {
-            console.warn(`[CORS] Rejected origin: "${origin}". Allowed core:`, allowedOrigins);
             callback(null, true);
         }
     },
@@ -45,18 +43,16 @@ app.use(cors(corsOptions));
 
 const port = process.env.PORT || 3005;
 
-app.use(express.json());
-
 app.use('/iclock', express.text({ type: '*/*', limit: '10mb' }));
 app.use('/iclock', (req, res, next) => {
     if (req.method === 'POST') {
-        console.log(`[ADMS] POST ${req.originalUrl} - Body length: ${req.body?.length || 0}`);
     }
     next();
 });
 
+app.use(express.json());
+
 app.use((req, res, next) => {
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl} - IP: ${req.ip}`);
     next();
 });
 
@@ -166,7 +162,6 @@ app.get('/api/dashboard/stats', async (req, res) => {
             totalPendingCaja: totalPendingCaja
         });
     } catch (error) {
-        console.error('Error al obtener dashboard stats:', error);
         res.status(500).json({ error: 'Error interno al cargar estadísticas' });
     }
 });
@@ -261,7 +256,6 @@ app.post('/api/login', async (req, res) => {
             res.status(401).json({ success: false, message: 'Credenciales inválidas' });
         }
     } catch (error) {
-        console.error('Error en login:', error);
         res.status(500).json({ success: false, message: 'Error en el servidor' });
     }
 });
@@ -316,7 +310,6 @@ app.get('/api/auth/me/:email', async (req, res) => {
             res.status(404).json({ success: false, message: 'Usuario no encontrado' });
         }
     } catch (error) {
-        console.error('Error al obtener perfil:', error);
         res.status(500).json({ success: false, message: 'Error en el servidor' });
     }
 });
@@ -347,7 +340,6 @@ app.post('/api/admin/security/unblock', async (req, res) => {
             .query('DELETE FROM LOGIN_ATTEMPTS WHERE EMAIL = @email AND IP_ADDRESS = @ip');
         res.json({ success: true, message: 'Usuario desbloqueado correctamente' });
     } catch (error) {
-        console.error('Error al desbloquear:', error);
         res.status(500).json({ success: false, message: 'Error al desbloquear: ' + error.message });
     }
 });
@@ -358,7 +350,6 @@ app.get('/api/admin/ips', async (req, res) => {
         const result = await pool.request().query('SELECT * FROM ALLOWED_IPS_WHITELIST ORDER BY CREATED_AT DESC');
         res.json(result.recordset);
     } catch (error) {
-        console.error('Error al obtener IPs:', error);
         res.status(500).json({ error: 'Error al obtener lista de IPs' });
     }
 });
@@ -376,7 +367,6 @@ app.post('/api/admin/ips', async (req, res) => {
 
         res.json({ success: true, message: 'IP autorizada correctamente' });
     } catch (error) {
-        console.error('Error al agregar IP:', error);
         res.status(500).json({ error: 'Error al guardar IP' });
     }
 });
@@ -390,7 +380,6 @@ app.delete('/api/admin/ips/:id', async (req, res) => {
             .query('DELETE FROM ALLOWED_IPS_WHITELIST WHERE ID = @id');
         res.json({ success: true, message: 'IP eliminada' });
     } catch (error) {
-        console.error('Error al eliminar IP:', error);
         res.status(500).json({ error: 'Error al eliminar IP' });
     }
 });
@@ -416,7 +405,6 @@ app.get('/api/admin/users', async (req, res) => {
         const result = await pool.request().query('SELECT ID_USERS, EMAIL, FULL_NAME, ROL, CAN_PLANILLA, CAN_MOVIMIENTOS, CAN_FINANZAS, CAN_EMPLEADOS, CAN_ARCHIVADOS, CAN_DASHBOARD, CAN_HISTORIAL, CAN_VACACIONES, CAN_ASISTENCIA FROM USERS');
         res.json(result.recordset);
     } catch (error) {
-        console.error('Error al obtener usuarios:', error);
         res.status(500).json({ success: false, message: 'Error al obtener usuarios: ' + error.message });
     }
 });
@@ -431,7 +419,6 @@ app.delete('/api/admin/users/:id', async (req, res) => {
 
         res.json({ success: true, message: 'Usuario eliminado correctamente' });
     } catch (error) {
-        console.error('Error al eliminar usuario:', error);
         res.status(500).json({ success: false, message: 'Error al eliminar usuario: ' + error.message });
     }
 });
@@ -456,13 +443,11 @@ app.post('/api/admin/update-permissions', async (req, res) => {
 
         res.json({ success: true, message: 'Permisos actualizados correctamente' });
     } catch (error) {
-        console.error('Error al actualizar permisos:', error);
         res.status(500).json({ success: false, message: 'Error al actualizar permisos: ' + error.message });
     }
 });
 
 app.post('/api/admin/create-user', async (req, res) => {
-    console.log('Recibida petición de creación de usuario:', req.body);
     try {
         const { email, password, full_name, role, permissions = {} } = req.body;
         const pool = await poolPlanilla;
@@ -496,7 +481,6 @@ app.post('/api/admin/create-user', async (req, res) => {
 
         res.json({ success: true, message: 'Usuario creado correctamente' });
     } catch (error) {
-        console.error('Error al crear usuario:', error);
         res.status(500).json({ success: false, message: 'Error al crear usuario: ' + error.message });
     }
 });
@@ -529,7 +513,7 @@ app.post('/api/admin/logs', async (req, res) => {
 
         res.json({ success: true });
     } catch (error) {
-        console.error('Error recording log:', error);
+
         res.status(500).json({ error: 'Failed to record log' });
     }
 });
@@ -545,7 +529,6 @@ app.get('/api/admin/logs', async (req, res) => {
         const result = await pool.request().query('SELECT TOP 100 * FROM ACTIVITY_LOGS ORDER BY CREATED_AT DESC');
         res.json(result.recordset);
     } catch (error) {
-        console.error('Error fetching logs:', error);
         res.status(500).json({ error: 'Failed to fetch logs' });
     }
 });
@@ -555,11 +538,7 @@ app.get('/api/empleados', async (req, res) => {
         const pool = await poolPlanilla;
         const result = await pool.request().query('SELECT * FROM EMPLOYEES');
 
-        console.log(`[DB] Consulta /api/empleados: ${result.recordset.length} registros totales en tabla.`);
-
         const empleadosActivos = result.recordset.filter(emp => emp.ACTIVO === 1 || emp.ACTIVO === true || emp.ACTIVO === null);
-
-        console.log(`[DB] Empleados activos después de filtro: ${empleadosActivos.length}`);
 
         const empleados = empleadosActivos.map(emp => ({
             _id: emp.ID_EMPLOYEE,
@@ -596,7 +575,6 @@ app.get('/api/empleados', async (req, res) => {
 
         res.json(empleados);
     } catch (error) {
-        console.error('Error al obtener empleados de SQL:', error);
         res.status(500).json({
             error: 'Error al obtener empleados',
             details: error.message
@@ -682,7 +660,6 @@ app.get('/api/empleados-archivados', async (req, res) => {
 
         res.json(allArchived);
     } catch (error) {
-        console.error('Error al obtener empleados archivados de SQL:', error);
         res.status(500).json({ error: 'Error al obtener empleados archivados' });
     }
 });
@@ -707,14 +684,12 @@ app.delete('/api/empleados-archivados/:id', async (req, res) => {
 
         res.json({ message: 'Empleado eliminado permanentemente' });
     } catch (error) {
-        console.error('Error al eliminar empleado permanentemente:', error);
         res.status(500).json({ error: 'Error al eliminar empleado' });
     }
 });
 
 app.post('/api/empleados', async (req, res) => {
     try {
-        console.log('Recibiendo solicitud de registro:', req.body);
         const pool = await poolPlanilla;
         const data = req.body;
 
@@ -723,7 +698,6 @@ app.post('/api/empleados', async (req, res) => {
             .query('SELECT NOMBRE FROM EMPLOYEES WHERE DNI = @dni');
 
         if (checkDni.recordset.length > 0) {
-            console.log('Error: El DNI ya existe:', data.dni);
             return res.status(400).json({ error: 'El empleado con este DNI ya está registrado.' });
         }
 
@@ -775,16 +749,11 @@ app.post('/api/empleados', async (req, res) => {
 
         const result = await request.query(query);
         const saved = result.recordset[0];
-        console.log('Empleado guardado exitosamente:', saved.ID_EMPLOYEE);
         res.status(201).json({
             _id: saved.ID_EMPLOYEE,
             ...saved
         });
     } catch (error) {
-        console.error('--- ERROR DETALLADO DE SQL ---');
-        console.error('Mensaje:', error.message);
-        console.error('Código:', error.code);
-        if (error.originalError) console.error('Original:', error.originalError.message);
         res.status(500).json({ error: 'Error al guardar empleado', details: error.message });
     }
 });
@@ -841,7 +810,6 @@ app.put('/api/empleados/:id', async (req, res) => {
         `);
         res.json({ message: 'Empleado actualizado correctamente' });
     } catch (error) {
-        console.error('Error al actualizar empleado:', error);
         res.status(500).json({ error: 'Error al actualizar empleado' });
     }
 });
@@ -920,7 +888,6 @@ app.get('/api/planilla-borrador', async (req, res) => {
         });
         res.json(empleados);
     } catch (error) {
-        console.error('Error al obtener planilla borrador:', error);
         res.status(500).json({ error: 'Error al obtener planilla borrador' });
     }
 });
@@ -961,7 +928,6 @@ app.put('/api/planilla-borrador/:id', async (req, res) => {
         `);
         res.json({ message: 'Borrador actualizado correctamente' });
     } catch (error) {
-        console.error('Error al actualizar borrador:', error);
         res.status(500).json({ error: 'Error al actualizar borrador' });
     }
 });
@@ -972,7 +938,6 @@ app.delete('/api/planilla-borrador', async (req, res) => {
         await pool.request().query('DELETE FROM PLANILLA_BORRADOR');
         res.json({ message: 'Borrador limpiado correctamente' });
     } catch (error) {
-        console.error('Error al limpiar borrador:', error);
         res.status(500).json({ error: 'Error al limpiar borrador' });
     }
 });
@@ -1028,7 +993,6 @@ app.put('/api/empleados/:id/reactivar', async (req, res) => {
         await request.query(query);
         res.json({ message: 'Empleado re-contratado exitosamente' });
     } catch (error) {
-        console.error('Error al re-contratar empleado:', error);
         res.status(500).json({ error: 'Error al re-contratar empleado' });
     }
 });
@@ -1077,7 +1041,6 @@ app.delete('/api/empleados/:id', async (req, res) => {
 
         res.json({ message: 'Empleado dado de baja y archivado exitosamente' });
     } catch (error) {
-        console.error('Error al dar de baja y archivar empleado:', error);
         res.status(500).json({ error: 'Error al procesar la baja del empleado', details: error.message });
     }
 });
@@ -1126,7 +1089,6 @@ app.get('/api/adelantos', async (req, res) => {
         }));
         res.json(mapped);
     } catch (error) {
-        console.error('Error al obtener adelantos:', error);
         res.status(500).json({ error: 'Error al obtener adelantos' });
     }
 });
@@ -1155,7 +1117,6 @@ app.post('/api/adelantos', async (req, res) => {
         `);
         res.status(201).json({ message: 'Movimiento guardado' });
     } catch (error) {
-        console.error('Error al guardar movimiento:', error);
         res.status(500).json({ error: 'Error al guardar movimiento' });
     }
 });
@@ -1168,7 +1129,6 @@ app.delete('/api/adelantos/:id', async (req, res) => {
             .query('DELETE FROM ADVANCES WHERE Id = @id');
         res.json({ message: 'Eliminado de SQL' });
     } catch (error) {
-        console.error('Error al eliminar movimiento:', error);
         res.status(500).json({ error: 'Error al eliminar' });
     }
 });
@@ -1253,7 +1213,6 @@ app.post('/api/prestamos', async (req, res) => {
         }
         res.status(201).json({ message: `Prestamo guardado en ${cuotas} cuota(s)` });
     } catch (error) {
-        console.error('Error al guardar prestamo:', error);
         res.status(500).json({ error: 'Error al guardar prestamo' });
     }
 });
@@ -1294,7 +1253,6 @@ app.delete('/api/prestamos/:id', async (req, res) => {
         }
         res.json({ message: 'Eliminado de SQL' });
     } catch (error) {
-        console.error('Error al eliminar prestamo:', error);
         res.status(500).json({ error: 'Error al eliminar' });
     }
 });
@@ -1501,7 +1459,6 @@ app.post('/api/historial-pago', async (req, res) => {
             throw err;
         }
     } catch (error) {
-        console.error('Error guardando historial de pago en SQL:', error);
         res.status(500).json({ error: 'Error al guardar historial de pago en SQL Server' });
     }
 });
@@ -1532,7 +1489,6 @@ app.get('/api/historial-pago', async (req, res) => {
 
         res.json(formattedPeriods);
     } catch (error) {
-        console.error('Error obteniendo lista historial desde SQL:', error);
         res.status(500).json({ error: 'Error al obtener historial desde SQL Server' });
     }
 });
@@ -1582,7 +1538,6 @@ app.get('/api/historial-pago/:periodo', async (req, res) => {
 
         res.json(payrollData);
     } catch (error) {
-        console.error('Error obteniendo detalle desde SQL:', error);
         res.status(500).json({ error: 'Error al obtener detalle del historial desde SQL Server' });
     }
 });
@@ -1636,7 +1591,6 @@ async function getWhmcsInvoiceDetails(invoiceId) {
         });
         return res.data;
     } catch (err) {
-        console.error(`Error fetching invoice ${invoiceId}:`, err.message);
         return null;
     }
 }
@@ -1656,7 +1610,6 @@ async function getWhmcsClientDetails(clientId) {
         });
         return res.data;
     } catch (err) {
-        console.error(`Error fetching client ${clientId}:`, err.message);
         return null;
     }
 }
@@ -1671,14 +1624,12 @@ function mapBankToDebitAccount(bank) {
 }
 
 export async function syncWhmcsInvoices() {
-    console.log('Starting WHMCS Absolute Sync (Transaction-First/100% Accuracy)...');
     const now = new Date();
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth();
 
     try {
         const targetMonthStr = `${currentYear}-${(currentMonth + 1).toString().padStart(2, '0')}`;
-        console.log(`[WHMCS Sync] Analyzing transactions for ${targetMonthStr}...`);
 
         const txParams = new URLSearchParams();
         txParams.append('identifier', WHMCS_IDENTIFIER);
@@ -1692,7 +1643,6 @@ export async function syncWhmcsInvoices() {
         });
 
         if (!txRes.data.transactions || !txRes.data.transactions.transaction) {
-            console.warn('[WHMCS Sync] No transactions found in the response.');
             return;
         }
 
@@ -1700,7 +1650,6 @@ export async function syncWhmcsInvoices() {
         const marchTrans = allTrans.filter(t => t.date.startsWith(targetMonthStr));
 
         if (marchTrans.length === 0) {
-            console.log(`[WHMCS Sync] No transactions found for ${targetMonthStr}.`);
             return;
         }
 
@@ -1710,10 +1659,7 @@ export async function syncWhmcsInvoices() {
             return sum + (r > 0 ? (amt / r) : amt);
         }, 0);
 
-        console.log(`[WHMCS Sync] WHMCS Total Match: S/ ${totalGrossPEN.toFixed(2)} (${marchTrans.length} transacciones)`);
-
         const invoiceIds = [...new Set(marchTrans.map(t => parseInt(t.invoiceid)).filter(id => id > 0))];
-        console.log(`[WHMCS Sync] Syncing ${invoiceIds.length} unique invoices involved in these transactions.`);
 
         const pool = await poolFinance;
         let syncedCount = 0;
@@ -1837,7 +1783,6 @@ export async function syncWhmcsInvoices() {
                     `);
                     syncedCount++;
                 } catch (err) {
-                    console.error(`Error syncing invoice ${invId}:`, err.message);
                 }
             }));
         }
@@ -1845,7 +1790,6 @@ export async function syncWhmcsInvoices() {
         cachedThisMonthPaid = totalGrossPEN;
         cachedThisMonthTotalGross = totalGrossPEN;
         lastSyncTime = Date.now();
-        console.log(`[WHMCS Sync] Sync Complete. Final Cached Gross: S/ ${cachedThisMonthTotalGross.toFixed(2)} (${syncedCount} facturas listadas)`);
 
     } catch (error) {
     }
@@ -1862,8 +1806,7 @@ app.get('/api/whmcs/invoices', async (req, res) => {
         if (forceSync) {
             await syncWhmcsInvoices();
         } else if (!lastSyncTime || (Date.now() - lastSyncTime > SYNC_COOLDOWN)) {
-            console.log('[WHMCS] Starting background sync...');
-            syncWhmcsInvoices().catch(err => console.error('Background sync failed:', err));
+            syncWhmcsInvoices().catch(err => err);
         }
 
         const page = parseInt(req.query.page) || 1;
@@ -1936,9 +1879,6 @@ app.get('/api/whmcs/invoices', async (req, res) => {
             return st.includes('unpaid') || st.includes('pendien');
         }).reduce((sum, inv) => sum + (Number(inv.montoBruto) || 0), 0);
 
-        console.log(`[Finance Debug] This Month Paid (caché datepaid): ${thisMonthPaid}`);
-        console.log(`[Finance Debug] This Month Total Gross: ${thisMonthTotalGross}`);
-
         res.json({
             totalresults: totalRecords,
             totalPages: Math.ceil(totalRecords / limit),
@@ -1950,7 +1890,6 @@ app.get('/api/whmcs/invoices', async (req, res) => {
             invoices: invoices
         });
     } catch (error) {
-        console.error('Error fetching invoices:', error.message);
         res.status(500).json({ error: 'Error al obtener facturas' });
     }
 });
@@ -2011,7 +1950,6 @@ app.get('/api/whmcs/invoice/:id', async (req, res) => {
             res.status(404).json({ success: false, error: 'Factura no encontrada en WHMCS' });
         }
     } catch (error) {
-        console.error('Error fetching invoice detail:', error.message);
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -2086,7 +2024,6 @@ app.post('/api/finance/invoices/:id/metadata', async (req, res) => {
 
         res.json({ message: 'Metadata actualizada correctamente' });
     } catch (error) {
-        console.error('Error updating invoice metadata:', error);
         res.status(500).json({ error: 'Error al actualizar metadata' });
     }
 });
@@ -2097,7 +2034,6 @@ app.get('/api/finance/movement-types', async (req, res) => {
         const result = await pool.request().query('SELECT * FROM movement_types');
         res.json(result.recordset.map(r => ({ id: r.id || r.Id || r.ID, name: r.name || r.Nombre || r.NOMBRE || r[Object.keys(r)[1]] })));
     } catch (error) {
-        console.error('Error movement_types:', error);
         res.status(500).json({ error: 'Error al obtener tipos de movimiento' });
     }
 });
@@ -2108,7 +2044,6 @@ app.get('/api/finance/bancos', async (req, res) => {
         const result = await pool.request().query('SELECT * FROM BANCOS');
         res.json(result.recordset.map(r => ({ id: r.id || r.Id || r.ID, name: r.name || r.Nombre || r.NOMBRE || r[Object.keys(r)[1]] })));
     } catch (error) {
-        console.error('Error bancos:', error);
         res.status(500).json({ error: 'Error al obtener bancos' });
     }
 });
@@ -2119,7 +2054,6 @@ app.get('/api/finance/debit-accounts', async (req, res) => {
         const result = await pool.request().query('SELECT * FROM debit_accounts');
         res.json(result.recordset.map(r => ({ id: r.id || r.Id || r.ID, name: r.name || r.Nombre || r.NOMBRE || r[Object.keys(r)[1]] })));
     } catch (error) {
-        console.error('Error debit_accounts:', error);
         res.status(500).json({ error: 'Error al obtener cuentas débito' });
     }
 });
@@ -2130,7 +2064,6 @@ app.get('/api/finance/credit-accounts', async (req, res) => {
         const result = await pool.request().query('SELECT * FROM credit_accounts');
         res.json(result.recordset.map(r => ({ id: r.id || r.Id || r.ID, name: r.name || r.Nombre || r.NOMBRE || r[Object.keys(r)[1]] })));
     } catch (error) {
-        console.error('Error credit_accounts:', error);
         res.status(500).json({ error: 'Error al obtener cuentas crédito' });
     }
 });
@@ -2146,7 +2079,6 @@ app.get('/api/finance/codigo-contable', async (req, res) => {
             tipo: r.Tipo
         })));
     } catch (error) {
-        console.error('Error CUENTAS_CONTABLES:', error);
         res.status(500).json({ error: 'Error al obtener códigos contables' });
     }
 });
@@ -2157,7 +2089,6 @@ app.get('/api/finance/transaction-status', async (req, res) => {
         const result = await pool.request().query('SELECT * FROM transaction_status');
         res.json(result.recordset.map(r => ({ id: r.id || r.Id || r.ID, name: r.name || r.Nombre || r.NOMBRE || r[Object.keys(r)[1]] })));
     } catch (error) {
-        console.error('Error transaction_status:', error);
         res.status(500).json({ error: 'Error al obtener estados de transacción' });
     }
 });
@@ -2177,8 +2108,6 @@ app.get('/api/finance/egresos', async (req, res) => {
                 WHERE MONTH(Fecha) = @month AND YEAR(Fecha) = @year
                 ORDER BY Fecha DESC, CreatedAt DESC
             `);
-
-        console.log(`[EGRESOS DEBUG] Mes: ${mes}, Anio: ${anio} -> Filas encontradas: ${result.recordset.length}`);
 
         const egresos = result.recordset.map(e => ({
             id: e.ID,
@@ -2202,7 +2131,6 @@ app.get('/api/finance/egresos', async (req, res) => {
             egresos
         });
     } catch (error) {
-        console.error('Error fetching egresos:', error);
         res.status(500).json({ error: 'Error al obtener egresos' });
     }
 });
@@ -2231,7 +2159,6 @@ app.post('/api/finance/egresos', async (req, res) => {
 
         res.status(201).json({ success: true, message: 'Egreso registrado correctamente' });
     } catch (error) {
-        console.error('Error creating egreso:', error);
         res.status(500).json({ error: 'Error al registrar egreso' });
     }
 });
@@ -2254,7 +2181,6 @@ app.post('/api/finance/egresos/:id/metadata', async (req, res) => {
         `);
         res.json({ success: true, message: 'Egreso actualizado' });
     } catch (error) {
-        console.error('Error updating egreso metadata:', error);
         res.status(500).json({ error: 'Error al actualizar egreso' });
     }
 });
@@ -2267,7 +2193,6 @@ app.delete('/api/finance/egresos/:id', async (req, res) => {
             .query('DELETE FROM FINANCE_EGRESOS WHERE ID = @id');
         res.json({ success: true, message: 'Egreso eliminado' });
     } catch (error) {
-        console.error('Error deleting egreso:', error);
         res.status(500).json({ error: 'Error al eliminar egreso' });
     }
 });
@@ -2295,7 +2220,6 @@ app.get('/api/vacaciones', async (req, res) => {
         const result = await request.query(query);
         res.json(result.recordset);
     } catch (error) {
-        console.error('Error fetching vacations:', error);
         res.status(500).json({ error: 'Error al obtener vacaciones' });
     }
 });
@@ -2320,7 +2244,6 @@ app.post('/api/vacaciones', async (req, res) => {
 
         res.status(201).json({ success: true, message: 'Vacaciones registradas correctamente' });
     } catch (error) {
-        console.error('Error creating vacation:', error);
         res.status(500).json({ error: 'Error al registrar vacaciones' });
     }
 });
@@ -2352,7 +2275,6 @@ app.put('/api/vacaciones/:id', async (req, res) => {
 
         res.json({ success: true, message: 'Vacaciones actualizadas correctamente' });
     } catch (error) {
-        console.error('Error updating vacation:', error);
         res.status(500).json({ error: 'Error al actualizar vacaciones' });
     }
 });
@@ -2366,7 +2288,6 @@ app.delete('/api/vacaciones/:id', async (req, res) => {
             .query('DELETE FROM EMPLOYEE_VACATIONS WHERE ID = @id');
         res.json({ success: true, message: 'Vacaciones eliminadas' });
     } catch (error) {
-        console.error('Error deleting vacation:', error);
         res.status(500).json({ error: 'Error al eliminar vacaciones' });
     }
 });
@@ -2375,81 +2296,125 @@ app.delete('/api/vacaciones/:id', async (req, res) => {
 
 cron.schedule('*/30 * * * *', async () => {
     try {
-        console.log('[CRON] Starting automatic Gmail synchronization...');
         const portToUse = process.env.PORT || port;
         const response = await axios.get(`http://localhost:${portToUse}/api/gmail/process?autoCreate=true&days=3`, {
             timeout: 60000
         });
 
-        if (response.data && response.data.success) {
-            console.log(`[CRON] Gmail sync complete. Scanned: ${response.data.totalScanned}, Saved: ${response.data.totalSaved}`);
-        } else {
-            console.error('[CRON] Gmail sync returned failure:', response.data);
-        }
     } catch (error) {
-        console.error('[CRON] Critical error in Gmail sync job:', error.message);
-    }
-});
-
-app.get('*', (req, res) => {
-    if (!req.path.startsWith('/api/')) {
-        res.sendFile(path.join(distPath, 'index.html'), (err) => {
-            if (err) {
-                res.status(404).send("Frontend not found in 'public' folder. Check volumes.");
-            }
-        });
     }
 });
 
 app.get('/iclock/cdata', (req, res) => {
-    console.log(`[ADMS] Init check from device: ${req.query.SN}`);
-    res.send('OK');
+    const { SN } = req.query;
+    if (SN) {
+        console.log(`[ADMS] Conexión detectada de SN: ${SN}. Preparando sincronización...`);
+        pendingCommands.set(SN, 'DATA QUERY ATTLOG');
+    }
+    res.setHeader('Content-Type', 'text/plain');
+    res.end('OK\n');
 });
 
 app.post('/iclock/cdata', async (req, res) => {
     const { SN, table } = req.query;
-    if (table !== 'ATTLOG') return res.send('OK');
+
+    if (table !== 'ATTLOG') {
+        return res.end('OK\n');
+    }
+
+    if (!req.body || typeof req.body !== 'string' || req.body.length === 0) {
+        console.log('[ADMS] Body vacío o formato incorrecto');
+        return res.end('OK\n');
+    }
 
     try {
         const pool = await poolPlanilla;
-        const lines = req.body.split('\n');
+        const bodyContent = req.body.toString();
+        const lines = bodyContent.split('\n');
+        let savedCount = 0;
 
         for (let line of lines) {
-            if (!line.trim()) continue;
+            line = line.trim();
+            if (!line) continue;
 
-            const parts = line.split('\t');
-            const data = {};
-            parts.forEach(p => {
-                const [k, v] = p.split('=');
-                if (k && v) data[k.trim().toUpperCase()] = v.trim();
-            });
+            let userid, checktime, type = 0;
 
-            if (data.USERID && data.CHECKTIME) {
-                await pool.request()
-                    .input('sn', mssql.NVarChar, SN)
-                    .input('userid', mssql.Int, parseInt(data.USERID))
-                    .input('checktime', mssql.DateTime, new Date(data.CHECKTIME))
-                    .input('type', mssql.Int, parseInt(data.CHECKTYPE) || 0)
-                    .query(`
-                        INSERT INTO ATTENDANCE_LOGS (SN, USERID, CHECKTIME, CHECKTYPE)
-                        VALUES (@sn, @userid, @checktime, @type)
-                    `);
-                console.log(`[ADMS] Log saved for USERID: ${data.USERID} at ${data.CHECKTIME}`);
+            if (line.includes('=')) {
+                const data = {};
+                line.split('\t').forEach(p => {
+                    const [keyVal, ...rest] = p.split('=');
+                    if (keyVal && rest.length > 0) {
+                        data[keyVal.trim().toUpperCase()] = rest.join('=').trim();
+                    }
+                });
+                userid = data.USERID;
+                checktime = data.CHECKTIME;
+                type = parseInt(data.CHECKTYPE) || 0;
+            } else {
+                const parts = line.split('\t');
+                if (parts.length >= 2) {
+                    userid = parts[0];
+                    checktime = parts[1];
+                    type = parseInt(parts[2]) || 0;
+                } else {
+                    // Intento fallback por espacios si no hay tabs
+                    const spaceParts = line.split(/\s+/);
+                    if (spaceParts.length >= 2) {
+                        userid = spaceParts[0];
+                        checktime = `${spaceParts[1]} ${spaceParts[2]}`;
+                        type = parseInt(spaceParts[3]) || 0;
+                    }
+                }
+            }
+
+            // Validación de seguridad para evitar errores de tipo en SQL
+            if (userid && checktime && !isNaN(parseInt(userid)) && !isNaN(new Date(checktime).getTime())) {
+                try {
+                    await pool.request()
+                        .input('sn', mssql.NVarChar, SN)
+                        .input('userid', mssql.Int, parseInt(userid))
+                        .input('checktime', mssql.DateTime, new Date(checktime))
+                        .input('type', mssql.Int, type)
+                        .query(`
+                            INSERT INTO ATTENDANCE_LOGS (SN, USERID, CHECKTIME, CHECKTYPE)
+                            VALUES (@sn, @userid, @checktime, @type)
+                        `);
+                    savedCount++;
+                } catch (dbErr) {
+                    if (!dbErr.message.includes('PRIMARY KEY') && !dbErr.message.includes('unique')) {
+                        console.error(`[ADMS] SQL Error para USERID ${userid}:`, dbErr.message);
+                    }
+                }
             }
         }
-        res.send('OK');
+        if (savedCount > 0) {
+            console.log(`[ADMS] OK: ${savedCount} registros procesados para SN: ${SN}`);
+        }
+        res.setHeader('Content-Type', 'text/plain');
+        res.end('OK\n');
     } catch (error) {
-        console.error('[ADMS] Error saving logs:', error);
-        res.status(500).send('ERROR');
+        console.error('[ADMS] Error crítico en procesador:', error);
+        res.status(500).end('ERROR\n');
     }
 });
 
 app.get('/iclock/getrequest', (req, res) => {
-    res.send('OK');
+    const { SN } = req.query;
+    res.setHeader('Content-Type', 'text/plain');
+
+    if (SN && pendingCommands.has(SN)) {
+        const cmd = pendingCommands.get(SN);
+        pendingCommands.delete(SN);
+        console.log(`[ADMS] Enviando orden de sincronización forzada a SN: ${SN}`);
+        return res.end(`C:101:${cmd}\n`);
+    }
+
+    res.end('OK\n');
 });
 
 app.post('/iclock/devicecmd', (req, res) => {
-    res.send('OK');
+    res.setHeader('Content-Type', 'text/plain');
+    res.end('OK\n');
 });
 
 app.get('/api/attendance/logs', async (req, res) => {
@@ -2469,36 +2434,44 @@ app.get('/api/attendance/logs', async (req, res) => {
         const result = await pool.request().query(query + ' ORDER BY l.CHECKTIME DESC');
         res.json(result.recordset);
     } catch (error) {
-        console.error('Error fetching attendance logs:', error);
         res.status(500).json({ error: 'Error al obtener registros de asistencia' });
+    }
+});
+
+app.get('*', (req, res) => {
+    if (!req.path.startsWith('/api/') && !req.path.startsWith('/iclock/')) {
+        res.sendFile(path.join(distPath, 'index.html'), (err) => {
+            if (err) {
+                res.status(404).send("Frontend not found in 'public' folder. Check volumes.");
+            }
+        });
     }
 });
 const admsPort = 8081;
 const admsServer = http.createServer(app);
 admsServer.listen(admsPort, '0.0.0.0', () => {
-    console.log(`[ADMS] Receptor running on port ${admsPort}`);
 });
 
 app.use((err, req, res, next) => {
-    console.error('SERVER_ERROR:', err);
-    res.status(500).json({ success: false, error: 'Error interno del servidor' });
+    console.error('--- ERROR GLOBAL DEL SERVIDOR ---');
+    console.error(err.stack || err);
+    res.status(500).json({
+        success: false,
+        error: 'Error interno del servidor',
+        message: err.message
+    });
 });
 
-console.log('[DEBUG] Setting up server listener...');
 app.listen(port, () => {
-    console.log(`Server running at http://localhost:${port}`);
 }).on('error', (err) => {
-    console.error('[DEBUG] Server failed to start:', err);
     process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-    console.error('UNHANDLED_REJECTION (non-fatal):', reason);
-    if (reason && reason.stack) console.error(reason.stack);
+    if (reason && reason.stack);
 });
 
 process.on('uncaughtException', (err) => {
-    console.error('UNCAUGHT_EXCEPTION:', err);
-    if (err && err.stack) console.error(err.stack);
+    if (err && err.stack);
     process.exit(1);
 });

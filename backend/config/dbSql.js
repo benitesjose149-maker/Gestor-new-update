@@ -10,18 +10,6 @@ const sqlPassword = getSecret('SQL_PASSWORD', 'TuPasswordFuerte123!');
 const sqlServer = getSecret('SQL_SERVER', '15.235.16.229');
 const sqlPort = parseInt(getSecret('SQL_PORT', '1433'), 10);
 
-// === DIAGNOSTIC LOGGING ===
-console.log('========================================');
-console.log('[DB CONFIG] SQL Connection Diagnostics:');
-console.log(`[DB CONFIG]   Server: "${sqlServer}"`);
-console.log(`[DB CONFIG]   Port: ${sqlPort}`);
-console.log(`[DB CONFIG]   User: "${sqlUser}" (${sqlUser.length} chars)`);
-console.log(`[DB CONFIG]   Password length: ${sqlPassword.length} chars`);
-console.log(`[DB CONFIG]   SQL_SERVER source: ${process.env.SQL_SERVER ? 'ENV variable' : 'Docker secret or default'}`);
-console.log(`[DB CONFIG]   SQL_USER source: ${process.env.SQL_USER ? 'ENV variable' : 'Docker secret or default'}`);
-console.log(`[DB CONFIG]   Node ENV: ${process.env.NODE_ENV || 'not set'}`);
-console.log('========================================');
-
 const baseConfig = {
     user: sqlUser,
     password: sqlPassword,
@@ -44,7 +32,6 @@ const baseConfig = {
 const configPlanilla = { ...baseConfig, database: 'PLANILLA' };
 const configFinance = { ...baseConfig, database: 'FINANCE' };
 
-// TCP connectivity test — checks if the port is reachable before SQL auth
 function testTcpConnection(host, port, timeoutMs = 10000) {
     return new Promise((resolve) => {
         const socket = new net.Socket();
@@ -68,9 +55,7 @@ function testTcpConnection(host, port, timeoutMs = 10000) {
     });
 }
 
-// Retry logic for container environments where DB may not be immediately reachable
 async function connectWithRetry(config, dbName, maxRetries = 5, delayMs = 5000) {
-    // First attempt: test raw TCP connectivity
     const tcpOk = await testTcpConnection(sqlServer, sqlPort);
     if (!tcpOk) {
         console.error(`⚠️ [DB] TCP test failed for ${sqlServer}:${sqlPort} — the server may be unreachable from this container/network`);
