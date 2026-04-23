@@ -52,7 +52,8 @@
                 <div class="card-header">
                     <div class="header-info">
                         <h2>Registros de Movimientos</h2>
-                        <span class="record-description">Listado detallado con filtros aplicados ({{ filteredItems.length }} registros encontrados)</span>
+                        <span class="record-description">Listado detallado con filtros aplicados ({{
+                            filteredItems.length }} registros encontrados)</span>
                     </div>
                     <button class="btn-expand" (click)="tableExpanded = !tableExpanded"
                         [title]="tableExpanded ? 'Contraer tabla' : 'Expandir tabla'">
@@ -85,7 +86,8 @@
                             <tbody>
                                 <tr *ngFor="let inv of paginatedItems; let i = index" class="table-row"
                                     [id]="'invoice-row-' + inv.id" [ngClass]="{'egreso-row': inv.isEgreso}">
-                                    <td style="text-align: center; font-weight: bold; color: #64748b; background: #f8fafc; font-size: 0.85rem;">
+                                    <td
+                                        style="text-align: center; font-weight: bold; color: #64748b; background: #f8fafc; font-size: 0.85rem;">
                                         {{ i + 1 + (currentPage - 1) * effectivePageSize }}
                                     </td>
                                     <td class="id-cell">
@@ -151,8 +153,7 @@
                                             <input type="number" class="cell-input" [(ngModel)]="inv.comision"
                                                 (ngModelChange)="onComisionChange(inv)" step="0.01" min="0">
                                         </div>
-                                        <span *ngIf="inv.isEgreso || !inv.editing">{{ !inv.isEgreso ? (inv.comision |
-                                            number:'1.2-2') : '-' }}</span>
+                                        <span *ngIf="inv.isEgreso || !inv.editing">{{ !inv.isEgreso ? ('S/ ' + (inv.comision | number:'1.2-2')) : '-' }}</span>
                                     </td>
                                     <td class="amount-cell"
                                         [ngClass]="inv.isEgreso ? 'amount-negative text-danger fw-bold' : ''">

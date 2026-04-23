@@ -19,9 +19,6 @@ export class DashboardComponent implements OnInit {
     totalPendingCaja: number = 0;
 
     constructor(private router: Router) { }
-
-
-
     async ngOnInit() {
         await this.loadStats();
     }
@@ -39,7 +36,6 @@ export class DashboardComponent implements OnInit {
             this.pendingCajaVirtual = data.pendingCajaVirtual || [];
             this.totalPendingCaja = data.totalPendingCaja || 0;
 
-            // Eliminamos el recálculo manual del frontend para usar el valor bruto del servidor
         } catch (error) {
             console.error('Error loading dashboard stats:', error);
             this.stats = [

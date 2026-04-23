@@ -250,7 +250,6 @@ export class FinanceDashboardComponent implements OnInit {
 
             const highlightId = this.route.snapshot.queryParams['highlight'];
             if (highlightId) {
-                // El resaltado con reintentos asegura que el elemento exista en el DOM antes de aplicar efectos
                 this.highlightRow(highlightId);
             }
         }
