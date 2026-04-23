@@ -75,10 +75,37 @@ app.get('/api/dashboard/stats', async (req, res) => {
         const currentMonth = now.getMonth() + 1;
 
         const payrollRes = await pool.request()
-            .query('SELECT SUM(SUELDO_BASE) as total, COUNT(*) as count FROM EMPLOYEES WHERE ACTIVO = 1 OR ACTIVO IS NULL');
+            .query(`
+                SELECT e.ID_EMPLOYEE, e.SUELDO_BASE, e.TIPO_TRABAJADOR, 
+                       ISNULL(pb.HORAS_EXTRAS, 0) as HORAS_EXTRAS,
+                       pb.BONOS_JSON
+                FROM EMPLOYEES e
+                LEFT JOIN PLANILLA_BORRADOR pb ON e.ID_EMPLOYEE = pb.ID_EMPLOYEE
+                WHERE e.ACTIVO = 1 OR e.ACTIVO IS NULL
+            `);
 
-        const totalPayroll = payrollRes.recordset[0].total || 0;
-        const activeCount = payrollRes.recordset[0].count || 0;
+        const activeEmployees = payrollRes.recordset;
+        const activeCount = activeEmployees.length;
+
+        let totalInversionPlanilla = 0;
+
+        activeEmployees.forEach(emp => {
+            const sueldo = emp.SUELDO_BASE || 0;
+
+            let bonosTotal = 0;
+            try {
+                if (emp.BONOS_JSON) {
+                    const bonos = JSON.parse(emp.BONOS_JSON);
+                    bonosTotal = bonos.reduce((sum, b) => sum + (Number(b.monto) || 0), 0);
+                }
+            } catch (e) { }
+
+            const baseCalculo = sueldo + bonosTotal;
+            const hourlyRate = (baseCalculo / 240) * 1.25;
+            const montoHorasExtras = hourlyRate * (Number(emp.HORAS_EXTRAS) || 0);
+
+            totalInversionPlanilla += (sueldo + bonosTotal + montoHorasExtras);
+        });
 
         const birthdayRes = await pool.request()
             .input('month', mssql.Int, currentMonth)
@@ -151,7 +178,7 @@ app.get('/api/dashboard/stats', async (req, res) => {
         res.json({
             stats: [
                 { title: 'Total Empleados', value: activeCount.toString(), change: 'Activos actualmente', icon: '👥', color: 'blue' },
-                { title: 'Nómina Total (Base)', value: `S/ ${totalPayroll.toLocaleString('es-PE', { minimumFractionDigits: 2 })}`, change: 'Inversión mensual', icon: '💰', color: 'green' },
+                { title: 'Inversión Total Planilla', value: `S/ ${totalInversionPlanilla.toLocaleString('es-PE', { minimumFractionDigits: 2 })}`, change: 'Sueldos + Bonos + HE', icon: '💰', color: 'green' },
                 { title: 'Vencimientos 30d', value: contractExpirations.length.toString(), change: 'Contratos por vencer', icon: '⚠️', color: 'orange' },
                 { title: 'Facturas UnPaid', value: unpaidInvoices.length.toString(), change: 'Pendientes WHMCS', icon: '🧾', color: 'red' }
             ],
@@ -163,6 +190,116 @@ app.get('/api/dashboard/stats', async (req, res) => {
         });
     } catch (error) {
         res.status(500).json({ error: 'Error interno al cargar estadísticas' });
+    }
+});
+
+async function processVirtualPayment(invoiceId, gateway, amount, pool) {
+    const checkRes = await pool.request()
+        .input('invoiceId', mssql.Int, invoiceId)
+        .query('SELECT MontoBruto, EstadoLocal FROM FINANCE_INVOICES WHERE WHMCS_InvoiceID = @invoiceId');
+
+    if (checkRes.recordset.length === 0) {
+        throw new Error('Factura no encontrada en el sistema financiero');
+    }
+
+    const record = checkRes.recordset[0];
+    if (record.EstadoLocal === 'Pagado') {
+        return { alreadyProcessed: true };
+    }
+
+    const montoBruto = parseFloat(amount) || record.MontoBruto;
+
+    let porcentajeComision = 0;
+    let comisionFija = 0;
+
+    const gatewayLower = gateway.toLowerCase();
+    if (gatewayLower.includes('izipay')) {
+        porcentajeComision = 0.0399;
+        comisionFija = 1.00;
+    } else if (gatewayLower.includes('mercado libre') || gatewayLower.includes('mercadopago')) {
+        porcentajeComision = 0.0399;
+        comisionFija = 0.00;
+    } else {
+        porcentajeComision = 0.04;
+        comisionFija = 0.0;
+    }
+
+    const igvTasa = 0.18;
+    const comisionBase = (montoBruto * porcentajeComision) + comisionFija;
+    const igvComision = comisionBase * igvTasa;
+    const comisionTotalConIgv = Number((comisionBase + igvComision).toFixed(2));
+    const montoNeto = Number((montoBruto - comisionTotalConIgv).toFixed(2));
+
+    await pool.request()
+        .input('invoiceId', mssql.Int, invoiceId)
+        .input('comision', mssql.Decimal(10, 2), comisionTotalConIgv)
+        .input('neto', mssql.Decimal(10, 2), montoNeto)
+        .input('banco', mssql.VarChar, 'Caja Virtual')
+        .query(`
+            UPDATE FINANCE_INVOICES 
+            SET EstadoLocal = 'Pagado', 
+                Comision = @comision, 
+                DepositoSalida = @neto,
+                Banco = @banco
+            WHERE WHMCS_InvoiceID = @invoiceId
+        `);
+
+    const asientosReales = [
+        { cuenta: '1212', desc: `Venta Factura WHMCS #${invoiceId}`, debe: montoBruto, haber: 0, tipo: 'VENTA' },
+        { cuenta: '70121', desc: `Ingreso Mercadería / Servicio #${invoiceId}`, debe: 0, haber: Number((montoBruto / 1.18).toFixed(2)), tipo: 'VENTA' },
+        { cuenta: '4011', desc: `IGV Venta #${invoiceId}`, debe: 0, haber: Number((montoBruto - (montoBruto / 1.18)).toFixed(2)), tipo: 'VENTA' },
+        { cuenta: '6391', desc: `Comisión Pasarela ${gateway} #${invoiceId}`, debe: Number(comisionBase.toFixed(2)), haber: 0, tipo: 'GASTO' },
+        { cuenta: '4011', desc: `IGV Comisión ${gateway} #${invoiceId}`, debe: Number(igvComision.toFixed(2)), haber: 0, tipo: 'GASTO' },
+        { cuenta: '4212', desc: `Obligación Comisión ${gateway} #${invoiceId}`, debe: 0, haber: comisionTotalConIgv, tipo: 'GASTO' },
+        { cuenta: '1023', desc: `Cobro Neto ${gateway} #${invoiceId}`, debe: montoNeto, haber: 0, tipo: 'COBRO' },
+        { cuenta: '4212', desc: `Cancelación Comisión ${gateway} #${invoiceId}`, debe: comisionTotalConIgv, haber: 0, tipo: 'COBRO' },
+        { cuenta: '1212', desc: `Cancelación Deuda Cliente #${invoiceId}`, debe: 0, haber: montoBruto, tipo: 'COBRO' }
+    ];
+
+    for (const asiento of asientosReales) {
+        await pool.request()
+            .input('invId', mssql.Int, invoiceId)
+            .input('cta', mssql.NVarChar, asiento.cuenta)
+            .input('desc', mssql.NVarChar, asiento.desc)
+            .input('debe', mssql.Decimal(18, 2), asiento.debe)
+            .input('haber', mssql.Decimal(18, 2), asiento.haber)
+            .input('tipo', mssql.NVarChar, asiento.tipo)
+            .input('ref', mssql.NVarChar, gateway)
+            .query(`
+                INSERT INTO FINANCE_JOURNAL (InvoiceID, CuentaContable, Descripcion, Debe, Haber, TipoAsiento, Referencia)
+                VALUES (@invId, @cta, @desc, @debe, @haber, @tipo, @ref)
+            `);
+    }
+
+    return {
+        status: 'success',
+        datos: { invoiceId, gateway, montoBruto, comisionTotalConIgv, montoNeto },
+        asientosRegistrados: asientosReales
+    };
+}
+
+app.post('/api/finance/payment-confirmation', async (req, res) => {
+    try {
+        const { invoiceId, gateway, amount } = req.body;
+        if (!invoiceId || !gateway) {
+            return res.status(400).json({ status: 'error', message: 'Faltan datos requeridos' });
+        }
+
+        const pool = await poolFinance;
+        const result = await processVirtualPayment(invoiceId, gateway, amount, pool);
+
+        if (result.alreadyProcessed) {
+            return res.json({ status: 'info', mensaje: 'Esta factura ya fue liquidada anteriormente.' });
+        }
+
+        res.json({
+            status: 'success',
+            mensaje: 'Pago procesado y asientos registrados en Libro Diario',
+            ...result
+        });
+    } catch (error) {
+        console.error('Error al procesar el pago virtual:', error);
+        res.status(500).json({ status: 'error', message: error.message });
     }
 });
 
@@ -1781,6 +1918,17 @@ export async function syncWhmcsInvoices() {
                             VALUES (@whmcsId, @fecha, @cliente, @numFactura, @total, @estado, @pagado, @pagado, @moneda, CASE WHEN @cuentaDebito = 'Izipay por cobrar' THEN 'Pendiente' ELSE 'Conciliado' END, @banco, @cuentaDebito, @tipoMovimiento, @codContable, @now, @now)
                         END
                     `);
+
+                    // AUTOMATIZACIÓN: Si la factura es de Izipay/MercadoLibre y está pagada en WHMCS, liquidar automáticamente
+                    if (invBase.status === 'Paid' && (tipoMov.toLowerCase().includes('izipay') || tipoMov.toLowerCase().includes('mercado'))) {
+                        try {
+                            await processVirtualPayment(invId, tipoMov, totalMonthPENForInvoice, pool);
+                            console.log(`[Finance-Sync] Auto-Liquidación exitosa para #${invId}`);
+                        } catch (autoErr) {
+                            console.error(`[Finance-Sync] Error en auto-liquidación para #${invId}:`, autoErr.message);
+                        }
+                    }
+
                     syncedCount++;
                 } catch (err) {
                 }
@@ -1825,7 +1973,7 @@ app.get('/api/whmcs/invoices', async (req, res) => {
                 FROM FINANCE_INVOICES 
                 WHERE ( (MONTH(Fecha) = @month AND YEAR(Fecha) = @year) 
                         OR (MONTH(UpdatedAt) = @month AND YEAR(UpdatedAt) = @year) )
-                AND EstadoLocal IN ('Conciliado', 'Pendiente')
+                AND EstadoLocal IN ('Conciliado', 'Pendiente', 'Pagado')
             `);
 
         const totalRecords = countResult.recordset[0].total;
@@ -1840,7 +1988,7 @@ app.get('/api/whmcs/invoices', async (req, res) => {
                 SELECT * FROM FINANCE_INVOICES 
                 WHERE ( (MONTH(Fecha) = @month AND YEAR(Fecha) = @year) 
                         OR (MONTH(UpdatedAt) = @month AND YEAR(UpdatedAt) = @year) )
-                AND EstadoLocal IN ('Conciliado', 'Pendiente')
+                AND EstadoLocal IN ('Conciliado', 'Pendiente', 'Pagado')
                 ORDER BY Fecha DESC
                 OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
             `);

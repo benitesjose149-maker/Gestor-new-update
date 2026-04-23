@@ -52,7 +52,7 @@
                 <div class="card-header">
                     <div class="header-info">
                         <h2>Registros de Movimientos</h2>
-                        <span class="record-description">Listado detallado con filtros aplicados</span>
+                        <span class="record-description">Listado detallado con filtros aplicados ({{ filteredItems.length }} registros encontrados)</span>
                     </div>
                     <button class="btn-expand" (click)="tableExpanded = !tableExpanded"
                         [title]="tableExpanded ? 'Contraer tabla' : 'Expandir tabla'">
@@ -64,6 +64,7 @@
                         <table class="finance-table">
                             <thead>
                                 <tr>
+                                    <th style="width: 40px; text-align: center;">#</th>
                                     <th style="width: 50px;">TIPO</th>
                                     <th>Nº FACTURA</th>
                                     <th>FECHA</th>
@@ -84,6 +85,9 @@
                             <tbody>
                                 <tr *ngFor="let inv of paginatedItems; let i = index" class="table-row"
                                     [id]="'invoice-row-' + inv.id" [ngClass]="{'egreso-row': inv.isEgreso}">
+                                    <td style="text-align: center; font-weight: bold; color: #64748b; background: #f8fafc; font-size: 0.85rem;">
+                                        {{ i + 1 + (currentPage - 1) * effectivePageSize }}
+                                    </td>
                                     <td class="id-cell">
                                         <span *ngIf="!inv.isEgreso" class="badge badge-ingreso">INGRESO</span>
                                         <span *ngIf="inv.isEgreso && inv.origen !== 'GMAIL'"
@@ -210,7 +214,7 @@
 
                                 </tr>
                                 <tr *ngIf="items.length === 0">
-                                    <td colspan="13" class="empty-state">
+                                    <td colspan="14" class="empty-state">
                                         No se encontraron movimientos para este mes.
                                     </td>
                                 </tr>
