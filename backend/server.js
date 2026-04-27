@@ -193,7 +193,7 @@ app.get('/api/dashboard/stats', async (req, res) => {
     }
 });
 
-async function processVirtualPayment(invoiceId, gateway, amount, pool) {
+async function processVirtualPayment(invoiceId, gateway, amount, pool, isForeign = false, force = false) {
     const checkRes = await pool.request()
         .input('invoiceId', mssql.Int, invoiceId)
         .query('SELECT MontoBruto, EstadoLocal FROM FINANCE_INVOICES WHERE WHMCS_InvoiceID = @invoiceId');
@@ -203,57 +203,66 @@ async function processVirtualPayment(invoiceId, gateway, amount, pool) {
     }
 
     const record = checkRes.recordset[0];
-    if (record.EstadoLocal === 'Pagado') {
+    if (record.EstadoLocal === 'Pagado' && !force) {
         return { alreadyProcessed: true };
+    }
+
+    if (force) {
+        await pool.request()
+            .input('invoiceId', mssql.Int, invoiceId)
+            .query('DELETE FROM FINANCE_JOURNAL WHERE InvoiceID = @invoiceId');
     }
 
     const montoBruto = parseFloat(amount) || record.MontoBruto;
 
-    let porcentajeComision = 0;
-    let comisionFija = 0;
+    const round2 = (num) => Math.round((num + Number.EPSILON) * 100) / 100;
+
+    let porcentajeComision = 0.04;
+    let comisionFija = 0.00;
 
     const gatewayLower = gateway.toLowerCase();
     if (gatewayLower.includes('izipay')) {
-        porcentajeComision = 0.0399;
-        comisionFija = 1.00;
+        const forceForeign = isForeign || gatewayLower.includes('extranjera') || gatewayLower.includes('foreign');
+        porcentajeComision = forceForeign ? 0.0399 : 0.0344;
+        comisionFija = 0.69;
     } else if (gatewayLower.includes('mercado libre') || gatewayLower.includes('mercadopago')) {
-        porcentajeComision = 0.0399;
+        porcentajeComision = 0.12;
         comisionFija = 0.00;
-    } else {
-        porcentajeComision = 0.04;
-        comisionFija = 0.0;
     }
 
-    const igvTasa = 0.18;
-    const comisionBase = (montoBruto * porcentajeComision) + comisionFija;
-    const igvComision = comisionBase * igvTasa;
-    const comisionTotalConIgv = Number((comisionBase + igvComision).toFixed(2));
-    const montoNeto = Number((montoBruto - comisionTotalConIgv).toFixed(2));
+    const baseImponible = round2(montoBruto / 1.18);
+    const igvVenta = round2(montoBruto - baseImponible);
+
+    const comisionBase = round2((montoBruto * porcentajeComision) + comisionFija);
+    const igvComision = round2(comisionBase * 0.18);
+    const comisionTotalConIgv = round2(comisionBase + igvComision);
+    const montoNeto = round2(montoBruto - comisionTotalConIgv);
 
     await pool.request()
         .input('invoiceId', mssql.Int, invoiceId)
         .input('comision', mssql.Decimal(10, 2), comisionTotalConIgv)
-        .input('neto', mssql.Decimal(10, 2), montoNeto)
-        .input('banco', mssql.VarChar, 'Caja Virtual')
+        .input('montoNeto', mssql.Decimal(10, 2), montoNeto)
         .query(`
             UPDATE FINANCE_INVOICES 
-            SET EstadoLocal = 'Pagado', 
-                Comision = @comision, 
-                DepositoSalida = @neto,
-                Banco = @banco
-            WHERE WHMCS_InvoiceID = @invoiceId
+            SET DepositoSalida = @montoNeto,
+                Comision = @comision,
+                UpdatedAt = GETDATE()
+            WHERE WHMCS_InvoiceID = @invoiceId 
+            AND (UPPER(EstadoLocal) != 'PAGADO')
         `);
 
     const asientosReales = [
-        { cuenta: '1212', desc: `Venta Factura WHMCS #${invoiceId}`, debe: montoBruto, haber: 0, tipo: 'VENTA' },
-        { cuenta: '70121', desc: `Ingreso Mercadería / Servicio #${invoiceId}`, debe: 0, haber: Number((montoBruto / 1.18).toFixed(2)), tipo: 'VENTA' },
-        { cuenta: '4011', desc: `IGV Venta #${invoiceId}`, debe: 0, haber: Number((montoBruto - (montoBruto / 1.18)).toFixed(2)), tipo: 'VENTA' },
-        { cuenta: '6391', desc: `Comisión Pasarela ${gateway} #${invoiceId}`, debe: Number(comisionBase.toFixed(2)), haber: 0, tipo: 'GASTO' },
-        { cuenta: '4011', desc: `IGV Comisión ${gateway} #${invoiceId}`, debe: Number(igvComision.toFixed(2)), haber: 0, tipo: 'GASTO' },
-        { cuenta: '4212', desc: `Obligación Comisión ${gateway} #${invoiceId}`, debe: 0, haber: comisionTotalConIgv, tipo: 'GASTO' },
-        { cuenta: '1023', desc: `Cobro Neto ${gateway} #${invoiceId}`, debe: montoNeto, haber: 0, tipo: 'COBRO' },
-        { cuenta: '4212', desc: `Cancelación Comisión ${gateway} #${invoiceId}`, debe: comisionTotalConIgv, haber: 0, tipo: 'COBRO' },
-        { cuenta: '1212', desc: `Cancelación Deuda Cliente #${invoiceId}`, debe: 0, haber: montoBruto, tipo: 'COBRO' }
+        { cuenta: '1213', desc: `Factura por cobrar ${gateway} #${invoiceId}`, debe: montoBruto, haber: 0, tipo: 'VENTA' },
+        { cuenta: '7011', desc: `Venta de servicio WHMCS #${invoiceId}`, debe: 0, haber: baseImponible, tipo: 'VENTA' },
+        { cuenta: '40111', desc: `IGV debito fiscal venta #${invoiceId}`, debe: 0, haber: igvVenta, tipo: 'VENTA' },
+
+        { cuenta: '6591', desc: `Comision ${gateway} sin IGV #${invoiceId}`, debe: comisionBase, haber: 0, tipo: 'GASTO' },
+        { cuenta: '40112', desc: `IGV credito fiscal comision #${invoiceId}`, debe: igvComision, haber: 0, tipo: 'GASTO' },
+        { cuenta: '4212', desc: `CxP obligacion comision ${gateway} #${invoiceId}`, debe: 0, haber: comisionTotalConIgv, tipo: 'GASTO' },
+
+        { cuenta: '1041', desc: `Deposito neto ${gateway} #${invoiceId}`, debe: montoNeto, haber: 0, tipo: 'COBRO' },
+        { cuenta: '4212', desc: `Cancelacion comision ${gateway} #${invoiceId}`, debe: comisionTotalConIgv, haber: 0, tipo: 'COBRO' },
+        { cuenta: '1213', desc: `Cancelacion CxC cliente #${invoiceId}`, debe: 0, haber: montoBruto, tipo: 'COBRO' }
     ];
 
     for (const asiento of asientosReales) {
@@ -280,16 +289,32 @@ async function processVirtualPayment(invoiceId, gateway, amount, pool) {
 
 app.post('/api/finance/payment-confirmation', async (req, res) => {
     try {
-        const { invoiceId, gateway, amount } = req.body;
+        const body = req.body;
+        const pool = await poolFinance;
+
+        if (Array.isArray(body)) {
+            const results = [];
+            for (const item of body) {
+                const { invoiceId, gateway, amount, isForeign, force } = item;
+                if (!invoiceId || !gateway) {
+                    results.push({ invoiceId, status: 'error', message: 'Faltan datos' });
+                    continue;
+                }
+                const resBatch = await processVirtualPayment(invoiceId, gateway, amount, pool, isForeign, force);
+                results.push({ invoiceId, ...resBatch });
+            }
+            return res.json({ status: 'success', mensaje: 'Procesamiento por lotes completado', results });
+        }
+
+        const { invoiceId, gateway, amount, isForeign, force } = body;
         if (!invoiceId || !gateway) {
             return res.status(400).json({ status: 'error', message: 'Faltan datos requeridos' });
         }
 
-        const pool = await poolFinance;
-        const result = await processVirtualPayment(invoiceId, gateway, amount, pool);
+        const result = await processVirtualPayment(invoiceId, gateway, amount, pool, isForeign, force);
 
         if (result.alreadyProcessed) {
-            return res.json({ status: 'info', mensaje: 'Esta factura ya fue liquidada anteriormente.' });
+            return res.json({ status: 'info', mensaje: 'Esta factura ya fue liquidada anteriormente. Usa force: true para re-calcular.' });
         }
 
         res.json({
@@ -1906,7 +1931,11 @@ export async function syncWhmcsInvoices() {
                                 EstadoWHMCS = @estado, 
                                 Pagado = @pagado, 
                                 MontoBruto = @total,
-                                DepositoSalida = @pagado,
+                                DepositoSalida = CASE WHEN UPPER(EstadoLocal) = 'PAGADO' THEN DepositoSalida ELSE @pagado END,
+                                -- PROTECCIÓN TOTAL: NUNCA se cambia el estado local si ya tiene un valor.
+                                EstadoLocal = ISNULL(NULLIF(EstadoLocal, ''), 
+                                    CASE WHEN @banco = 'Caja Virtual' THEN 'Pendiente' ELSE 'Conciliado' END
+                                ),
                                 Banco = @banco,
                                 CuentaDebito = @cuentaDebito,
                                 UpdatedAt = @now
@@ -1915,11 +1944,12 @@ export async function syncWhmcsInvoices() {
                         ELSE
                         BEGIN
                             INSERT INTO FINANCE_INVOICES (WHMCS_InvoiceID, Fecha, ClienteConcepto, NumFactura, MontoBruto, EstadoWHMCS, Pagado, DepositoSalida, Moneda, EstadoLocal, Banco, CuentaDebito, TipoMovimiento, CodigoContable, CreatedAt, UpdatedAt)
-                            VALUES (@whmcsId, @fecha, @cliente, @numFactura, @total, @estado, @pagado, @pagado, @moneda, CASE WHEN @cuentaDebito = 'Izipay por cobrar' THEN 'Pendiente' ELSE 'Conciliado' END, @banco, @cuentaDebito, @tipoMovimiento, @codContable, @now, @now)
+                            VALUES (@whmcsId, @fecha, @cliente, @numFactura, @total, @estado, @pagado, @pagado, @moneda, 
+                                CASE WHEN @banco = 'Caja Virtual' THEN 'Pendiente' ELSE 'Conciliado' END, 
+                                @banco, @cuentaDebito, @tipoMovimiento, @codContable, @now, @now)
                         END
                     `);
 
-                    // AUTOMATIZACIÓN: Si la factura es de Izipay/MercadoLibre y está pagada en WHMCS, liquidar automáticamente
                     if (invBase.status === 'Paid' && (tipoMov.toLowerCase().includes('izipay') || tipoMov.toLowerCase().includes('mercado'))) {
                         try {
                             await processVirtualPayment(invId, tipoMov, totalMonthPENForInvoice, pool);
@@ -2453,10 +2483,19 @@ cron.schedule('*/30 * * * *', async () => {
     }
 });
 
+// --- MONITOR DE CONEXIÓN ADMS ---
+app.use((req, res, next) => {
+    // Si la petición viene por el puerto 8081 o tiene rutas de iclock
+    if (req.path.includes('/iclock/') || req.originalUrl.includes('/iclock/')) {
+        console.log(`[ADMS-DEBUG] 📥 Petición Recibida: ${req.method} ${req.originalUrl} desde IP: ${req.ip}`);
+    }
+    next();
+});
+
 app.get('/iclock/cdata', (req, res) => {
     const { SN } = req.query;
     if (SN) {
-        console.log(`[ADMS] Conexión detectada de SN: ${SN}. Preparando sincronización...`);
+        console.log(`[ADMS] 📡 Conexión detectada de SN: ${SN}. Solicitando carga forzada de registros (ATTLOG)...`);
         pendingCommands.set(SN, 'DATA QUERY ATTLOG');
     }
     res.setHeader('Content-Type', 'text/plain');
@@ -2505,7 +2544,6 @@ app.post('/iclock/cdata', async (req, res) => {
                     checktime = parts[1];
                     type = parseInt(parts[2]) || 0;
                 } else {
-                    // Intento fallback por espacios si no hay tabs
                     const spaceParts = line.split(/\s+/);
                     if (spaceParts.length >= 2) {
                         userid = spaceParts[0];
@@ -2515,7 +2553,6 @@ app.post('/iclock/cdata', async (req, res) => {
                 }
             }
 
-            // Validación de seguridad para evitar errores de tipo en SQL
             if (userid && checktime && !isNaN(parseInt(userid)) && !isNaN(new Date(checktime).getTime())) {
                 try {
                     await pool.request()

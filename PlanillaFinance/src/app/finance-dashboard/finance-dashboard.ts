@@ -296,7 +296,6 @@ export class FinanceDashboardComponent implements OnInit {
         const qid = this.route.snapshot.queryParams['highlight'];
 
         return this.items.filter(it => {
-            // Si es el ítem que queremos resaltar, saltamos el filtro de fecha
             if (qid && (it.id == qid || it.localId == qid)) return true;
 
             if (it.fecha) {
@@ -369,26 +368,57 @@ export class FinanceDashboardComponent implements OnInit {
 
     get totalCajaVirtual(): number {
         const now = new Date();
-        const cm = now.getMonth();
-        const cy = now.getFullYear();
-        return this.filteredItems.filter(i => {
-            if (i.isEgreso) return false;
-            const cta = (i.cuentaDebito || '').toLowerCase();
-            if (cta !== 'izipay cobrado' && cta !== 'caja virtual') return false;
-            if (!i.fecha) return false;
-            const f = new Date(i.fecha);
-            return f.getMonth() === cm && f.getFullYear() === cy;
-        }).reduce((sum, inv) => sum + (inv.montoBruto || 0), 0);
+        return this.filteredItems
+            .filter(i => {
+                if (i.isEgreso) return false
+                const estado = (i.estadoLocal || '').toLowerCase().trim();
+                if (!['pagado', 'conciliado'].includes(estado)) return false;
+                const banco = (i.banco || '').toLowerCase().trim();
+                const cta = (i.cuentaDebito || '').toLowerCase().trim();
+                if (banco !== 'caja virtual' && !['izipay cobrado', 'caja virtual'].includes(cta)) {
+                    return false;
+                }
+                if (!i.fecha) return false;
+                const f = new Date(i.fecha);
+                if (isNaN(f.getTime())) return false;
+                return f.getMonth() === now.getMonth() && f.getFullYear() === now.getFullYear();
+            })
+            .reduce((sum, i) => sum + Number(i.depositoSalida || 0), 0);
     }
 
+    get totalCajaVirtualPendiente(): number {
+        const now = new Date();
 
+        return this.filteredItems
+            .filter(i => {
+                if (i.isEgreso) return false;
+
+                const estado = (i.estadoLocal || '').toLowerCase().trim();
+                if (estado !== 'pendiente') return false;
+
+                const banco = (i.banco || '').toLowerCase().trim();
+                const cta = (i.cuentaDebito || '').toLowerCase().trim();
+
+                if (banco !== 'caja virtual' && !['izipay cobrado', 'caja virtual', 'izipay por cobrar'].includes(cta)) {
+                    return false;
+                }
+
+                if (!i.fecha) return false;
+                const f = new Date(i.fecha);
+                if (isNaN(f.getTime())) return false;
+
+                return f.getMonth() === now.getMonth() &&
+                    f.getFullYear() === now.getFullYear();
+            })
+            .reduce((sum, i) => sum + Number(i.depositoSalida || 0), 0);
+    }
 
     get balance1(): number {
         return 0;
     }
 
     get balance2(): number {
-        return (this.thisMonthTotalGross || 0) - this.totalPayrollNet;
+        return this.totalBruto - this.totalComisiones - this.totalEgresos;
     }
 
     initBankBalances() {

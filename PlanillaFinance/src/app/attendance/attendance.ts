@@ -46,76 +46,84 @@ export class AttendanceComponent implements OnInit {
 
     async loadRealAttendance() {
         try {
-            console.log('%c[Attendance] 📡 Iniciando carga de datos...', 'color: #00bcd4; font-weight: bold;');
             const todayStr = new Date().toISOString().split('T')[0];
             const timestamp = new Date().getTime();
 
-            console.log('[Attendance] Solicitando empleados...');
             const empRes = await fetch(`${API_URL}/api/empleados?t=${timestamp}`, { headers: getAuthHeaders() });
-            console.log('[Attendance] Empleados Status:', empRes.status);
 
             if (empRes.ok) {
                 this.employees = await empRes.json();
-                console.log('%c[Attendance] 📦 DATOS RECIBIDOS DEL SERVIDOR:', 'color: #ff9800;', this.employees);
-                console.log(`%c[Attendance] ✅ ${this.employees.length} empleados cargados`, 'color: #4caf50;');
-
                 this.processRealLogs([]);
             } else {
                 const errText = await empRes.text();
-                console.error('[Attendance] ❌ Error en empleados:', empRes.status, errText);
             }
 
-            console.log('[Attendance] Solicitando marcas del biométrico...');
             const logsRes = await fetch(`${API_URL}/api/attendance/logs?date=${todayStr}&t=${timestamp}`, { headers: getAuthHeaders() });
 
             if (logsRes.ok) {
                 const logs = await logsRes.json();
-                console.log(`[Attendance] 📊 ${logs.length} marcas encontradas para hoy`);
                 this.processRealLogs(logs);
             }
         } catch (error) {
-            console.error('%c[Attendance] 🚨 ERROR CRÍTICO:', 'color: white; background: red; padding: 5px;', error);
         }
     }
     processRealLogs(logs: any[]) {
         const attendanceMap = new Map<number, any>();
 
-        this.employees.forEach(emp => {
-            const key = emp.biometricId !== null && emp.biometricId !== undefined ? emp.biometricId : emp.id;
-            attendanceMap.set(key, {
-                id: emp.id,
-                name: `${emp.nombre} ${emp.apellidos}`,
-                role: emp.cargo || 'Personal',
-                department: emp.departamento || '-',
-                clockIn: '-- : --',
-                clockOut: '-- : --',
-                status: 'Falta',
-                shift: `${emp.entryTime || '09:00'} - ${emp.exitTime || '18:00'}`,
-                observation: '',
-                rawEntry: null,
-                rawExit: null,
-                expectedEntry: emp.entryTime || '09:00'
-            });
-        });
-
         logs.forEach(log => {
             const userId = log.USERID;
-            if (attendanceMap.has(userId)) {
-                const emp = attendanceMap.get(userId);
-                const checkTime = new Date(log.CHECKTIME);
-                const timeStr = checkTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
 
-                if (log.CHECKTYPE === 0 || !emp.rawEntry) {
-                    if (!emp.rawEntry || checkTime < emp.rawEntry) {
-                        emp.rawEntry = checkTime;
-                        emp.clockIn = timeStr;
-                    }
+            if (!attendanceMap.has(userId)) {
+                const empInfo = this.employees.find(e => (e.biometricId === userId || e.id === userId));
+
+                if (empInfo) {
+                    attendanceMap.set(userId, {
+                        id: empInfo.id,
+                        name: `${empInfo.nombre} ${empInfo.apellidos}`,
+                        role: empInfo.cargo || 'Personal',
+                        department: empInfo.departamento || '-',
+                        clockIn: '-- : --',
+                        clockOut: '-- : --',
+                        status: 'Falta',
+                        shift: `${empInfo.entryTime || '09:00'} - ${empInfo.exitTime || '18:00'}`,
+                        observation: '',
+                        rawEntry: null,
+                        rawExit: null,
+                        expectedEntry: empInfo.entryTime || '09:00'
+                    });
+                } else {
+                    // Caso de un ID que marcó pero no está registrado en la base de datos de empleados
+                    attendanceMap.set(userId, {
+                        id: userId,
+                        name: `ID Desconocido (${userId})`,
+                        role: '-',
+                        department: '-',
+                        clockIn: '-- : --',
+                        clockOut: '-- : --',
+                        status: 'Falta',
+                        shift: '09:00 - 18:00',
+                        observation: 'ID no vinculado a ningún empleado',
+                        rawEntry: null,
+                        rawExit: null,
+                        expectedEntry: '09:00'
+                    });
                 }
-                if (log.CHECKTYPE === 1 || !emp.rawExit) {
-                    if (!emp.rawExit || checkTime > emp.rawExit) {
-                        emp.rawExit = checkTime;
-                        emp.clockOut = timeStr;
-                    }
+            }
+
+            const emp = attendanceMap.get(userId);
+            const checkTime = new Date(log.CHECKTIME);
+            const timeStr = checkTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+
+            if (log.CHECKTYPE === 0 || !emp.rawEntry) {
+                if (!emp.rawEntry || checkTime < emp.rawEntry) {
+                    emp.rawEntry = checkTime;
+                    emp.clockIn = timeStr;
+                }
+            }
+            if (log.CHECKTYPE === 1 || !emp.rawExit) {
+                if (!emp.rawExit || checkTime > emp.rawExit) {
+                    emp.rawExit = checkTime;
+                    emp.clockOut = timeStr;
                 }
             }
         });
@@ -219,7 +227,6 @@ export class AttendanceComponent implements OnInit {
         link.click();
         document.body.removeChild(link);
 
-        console.log(`Reporte descargado para ${emp.name}`);
     }
 
 

@@ -55,7 +55,7 @@
                         <span class="record-description">Listado detallado con filtros aplicados ({{
                             filteredItems.length }} registros encontrados)</span>
                     </div>
-                    <button class="btn-expand" (click)="tableExpanded = !tableExpanded"
+                    <button class="btn-expand-header" (click)="tableExpanded = !tableExpanded"
                         [title]="tableExpanded ? 'Contraer tabla' : 'Expandir tabla'">
                         <span class="expand-icon">{{ tableExpanded ? '⤡' : '⤢' }}</span>
                     </button>
@@ -153,7 +153,8 @@
                                             <input type="number" class="cell-input" [(ngModel)]="inv.comision"
                                                 (ngModelChange)="onComisionChange(inv)" step="0.01" min="0">
                                         </div>
-                                        <span *ngIf="inv.isEgreso || !inv.editing">{{ !inv.isEgreso ? ('S/ ' + (inv.comision | number:'1.2-2')) : '-' }}</span>
+                                        <span *ngIf="inv.isEgreso || !inv.editing">{{ !inv.isEgreso ? ('S/ ' +
+                                            (inv.comision | number:'1.2-2')) : '-' }}</span>
                                     </td>
                                     <td class="amount-cell"
                                         [ngClass]="inv.isEgreso ? 'amount-negative text-danger fw-bold' : ''">
@@ -285,7 +286,12 @@
                             <div class="bank-icon">CV</div>
                             <div class="bank-details">
                                 <span class="bank-name">CAJA VIRTUAL</span>
-                                <span class="bank-balance">S/ {{ totalCajaVirtual | number:'1.2-2' }}</span>
+                                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <span class="bank-balance">S/ {{ totalCajaVirtual | number:'1.2-2' }}</span>
+                                    <span class="pending-badge">
+                                        S/ {{ totalCajaVirtualPendiente | number:'1.2-2' }}
+                                    </span>
+                                </div>
                             </div>
                         </div>
                         <div class="bank-item caja">

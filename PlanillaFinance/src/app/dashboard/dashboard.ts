@@ -35,7 +35,6 @@ export class DashboardComponent implements OnInit {
             this.unpaidInvoices = data.unpaidInvoices || [];
             this.pendingCajaVirtual = data.pendingCajaVirtual || [];
             this.totalPendingCaja = data.totalPendingCaja || 0;
-
         } catch (error) {
             console.error('Error loading dashboard stats:', error);
             this.stats = [
