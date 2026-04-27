@@ -259,7 +259,7 @@ export class AttendanceComponent implements OnInit {
 
         this.presentToday = dataToProcess.filter(e => e.status === 'Puntual' || e.status === 'Tarde' || e.status === 'Justificado').length;
         this.lateToday = dataToProcess.filter(e => e.status === 'Tarde').length;
-        this.absentToday = this.totalEmployees - this.presentToday;
+        //this.absentToday = this.totalEmployees - this.presentToday;
     }
 
     filterData() {
