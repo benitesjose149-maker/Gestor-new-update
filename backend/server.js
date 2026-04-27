@@ -1999,7 +1999,12 @@ app.get('/api/whmcs/invoices', async (req, res) => {
             .query(`
                 SELECT 
                     COUNT(*) as total,
-                    SUM(ISNULL(MontoBruto, 0)) as totalGross
+                    SUM(ISNULL(MontoBruto, 0)) as totalGross,
+                    SUM(CASE WHEN (Banco = 'Caja Virtual' OR CuentaDebito IN ('Izipay cobrado', 'Caja virtual')) AND EstadoLocal IN ('Pagado', 'Conciliado') THEN ISNULL(DepositoSalida, 0) ELSE 0 END) as totalCajaVirtual,
+                    SUM(CASE WHEN (Banco = 'Caja Virtual' OR CuentaDebito IN ('Izipay cobrado', 'Caja virtual', 'Izipay por cobrar')) AND EstadoLocal = 'Pendiente' THEN ISNULL(DepositoSalida, 0) ELSE 0 END) as totalCajaVirtualPendiente,
+                    SUM(CASE WHEN CuentaDebito = 'BCP' THEN ISNULL(MontoBruto, 0) ELSE 0 END) as totalBcp,
+                    SUM(CASE WHEN CuentaDebito = 'INTERBANK' THEN ISNULL(MontoBruto, 0) ELSE 0 END) as totalInterbank,
+                    SUM(ISNULL(Comision, 0)) as totalComisiones
                 FROM FINANCE_INVOICES 
                 WHERE ( (MONTH(Fecha) = @month AND YEAR(Fecha) = @year) 
                         OR (MONTH(UpdatedAt) = @month AND YEAR(UpdatedAt) = @year) )
@@ -2008,6 +2013,11 @@ app.get('/api/whmcs/invoices', async (req, res) => {
 
         const totalRecords = countResult.recordset[0].total;
         const dbTotalGross = countResult.recordset[0].totalGross || 0;
+        const dbTotalCajaVirtual = countResult.recordset[0].totalCajaVirtual || 0;
+        const dbTotalCajaVirtualPendiente = countResult.recordset[0].totalCajaVirtualPendiente || 0;
+        const dbTotalBcp = countResult.recordset[0].totalBcp || 0;
+        const dbTotalInterbank = countResult.recordset[0].totalInterbank || 0;
+        const dbTotalComisiones = countResult.recordset[0].totalComisiones || 0;
 
         const result = await pool.request()
             .input('month', mssql.Int, currentMonth)
@@ -2065,6 +2075,13 @@ app.get('/api/whmcs/invoices', async (req, res) => {
             thisMonthTotal: thisMonthPaid,
             thisMonthTotalGross,
             thisMonthUnpaid,
+            serverBankTotals: {
+                cajaVirtual: dbTotalCajaVirtual,
+                cajaVirtualPendiente: dbTotalCajaVirtualPendiente,
+                bcp: dbTotalBcp,
+                interbank: dbTotalInterbank,
+                comisiones: dbTotalComisiones
+            },
             invoices: invoices
         });
     } catch (error) {

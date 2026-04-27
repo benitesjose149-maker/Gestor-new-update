@@ -61,7 +61,8 @@
                             style="display: flex; align-items: center; gap: 1rem; cursor: pointer; transition: all 0.2s;">
                             <div class="emp-avatar">{{ getInitials(emp.name) }}</div>
                             <div class="emp-details">
-                                <span class="emp-name" style="color: #3b82f6; text-decoration: underline;">{{ emp.name
+                                <span class="emp-name" style="color: #3b82f6; text-decoration: underline;">{{
+                                    emp.name
                                     }}</span>
                                 <span class="emp-role">{{ emp.role }} · <small>{{ emp.department }}</small></span>
                             </div>
@@ -232,7 +233,8 @@
                     <i class="fa-solid fa-comment-dots text-warning" style="font-size: 1.5rem;"></i>
                     <div>
                         <h2>Observaciones Internas</h2>
-                        <p>{{ selectedEmployeeForObservation?.name }} • {{ selectedEmployeeForObservation?.role }}</p>
+                        <p>{{ selectedEmployeeForObservation?.name }} • {{ selectedEmployeeForObservation?.role }}
+                        </p>
                     </div>
                 </div>
                 <button class="close-btn" (click)="closeObservationModal()"><i class="fa-solid fa-times"></i></button>

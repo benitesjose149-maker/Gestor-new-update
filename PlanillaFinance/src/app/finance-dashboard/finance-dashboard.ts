@@ -24,6 +24,14 @@ export class FinanceDashboardComponent implements OnInit {
     thisMonthUnpaid: number = 0;
     totalPayrollNet: number = 0;
 
+    serverBankTotals: any = {
+        cajaVirtual: 0,
+        cajaVirtualPendiente: 0,
+        bcp: 0,
+        interbank: 0,
+        comisiones: 0
+    };
+
     currentPage: number = 1;
     pageSize: any = 25;
     totalPages: number = 1;
@@ -114,6 +122,7 @@ export class FinanceDashboardComponent implements OnInit {
                 this.thisMonthTotal = data.thisMonthTotal || 0;
                 this.thisMonthTotalGross = data.thisMonthTotalGross || 0;
                 this.thisMonthUnpaid = data.thisMonthUnpaid || 0;
+                this.serverBankTotals = data.serverBankTotals || this.serverBankTotals;
                 this.totalPages = this.pageSize === 'All' ? 1 : (data.totalPages || 1);
                 this.totalResults = data.totalresults || 0;
 
@@ -341,76 +350,19 @@ export class FinanceDashboardComponent implements OnInit {
     }
 
     get totalInterbank(): number {
-        const now = new Date();
-        const cm = now.getMonth();
-        const cy = now.getFullYear();
-        return this.filteredItems.filter(i => {
-            if (i.isEgreso) return false;
-            if ((i.cuentaDebito || '').toLowerCase() !== 'interbank') return false;
-            if (!i.fecha) return false;
-            const f = new Date(i.fecha);
-            return f.getMonth() === cm && f.getFullYear() === cy;
-        }).reduce((sum, inv) => sum + (inv.montoBruto || 0), 0);
+        return this.serverBankTotals.interbank || 0;
     }
 
     get totalBcp(): number {
-        const now = new Date();
-        const cm = now.getMonth();
-        const cy = now.getFullYear();
-        return this.filteredItems.filter(i => {
-            if (i.isEgreso) return false;
-            if ((i.cuentaDebito || '').toLowerCase() !== 'bcp') return false;
-            if (!i.fecha) return false;
-            const f = new Date(i.fecha);
-            return f.getMonth() === cm && f.getFullYear() === cy;
-        }).reduce((sum, inv) => sum + (inv.montoBruto || 0), 0);
+        return this.serverBankTotals.bcp || 0;
     }
 
     get totalCajaVirtual(): number {
-        const now = new Date();
-        return this.filteredItems
-            .filter(i => {
-                if (i.isEgreso) return false
-                const estado = (i.estadoLocal || '').toLowerCase().trim();
-                if (!['pagado', 'conciliado'].includes(estado)) return false;
-                const banco = (i.banco || '').toLowerCase().trim();
-                const cta = (i.cuentaDebito || '').toLowerCase().trim();
-                if (banco !== 'caja virtual' && !['izipay cobrado', 'caja virtual'].includes(cta)) {
-                    return false;
-                }
-                if (!i.fecha) return false;
-                const f = new Date(i.fecha);
-                if (isNaN(f.getTime())) return false;
-                return f.getMonth() === now.getMonth() && f.getFullYear() === now.getFullYear();
-            })
-            .reduce((sum, i) => sum + Number(i.depositoSalida || 0), 0);
+        return this.serverBankTotals.cajaVirtual || 0;
     }
 
     get totalCajaVirtualPendiente(): number {
-        const now = new Date();
-
-        return this.filteredItems
-            .filter(i => {
-                if (i.isEgreso) return false;
-
-                const estado = (i.estadoLocal || '').toLowerCase().trim();
-                if (estado !== 'pendiente') return false;
-
-                const banco = (i.banco || '').toLowerCase().trim();
-                const cta = (i.cuentaDebito || '').toLowerCase().trim();
-
-                if (banco !== 'caja virtual' && !['izipay cobrado', 'caja virtual', 'izipay por cobrar'].includes(cta)) {
-                    return false;
-                }
-
-                if (!i.fecha) return false;
-                const f = new Date(i.fecha);
-                if (isNaN(f.getTime())) return false;
-
-                return f.getMonth() === now.getMonth() &&
-                    f.getFullYear() === now.getFullYear();
-            })
-            .reduce((sum, i) => sum + Number(i.depositoSalida || 0), 0);
+        return this.serverBankTotals.cajaVirtualPendiente || 0;
     }
 
     get balance1(): number {
@@ -444,7 +396,7 @@ export class FinanceDashboardComponent implements OnInit {
     }
 
     get totalComisiones(): number {
-        return this.filteredItems.filter(i => !i.isEgreso).reduce((sum, inv) => sum + (inv.comision || 0), 0);
+        return this.serverBankTotals.comisiones || 0;
     }
 
     get totalDeposito(): number {
