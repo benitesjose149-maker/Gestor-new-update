@@ -20,7 +20,6 @@ export class AttendanceComponent implements OnInit {
     searchText: string = '';
     attendanceData: any[] = [];
     employees: any[] = [];
-
     displayedData: any[] = [];
 
     isModalOpen: boolean = false;
@@ -53,9 +52,6 @@ export class AttendanceComponent implements OnInit {
 
             if (empRes.ok) {
                 this.employees = await empRes.json();
-                this.processRealLogs([]);
-            } else {
-                const errText = await empRes.text();
             }
 
             const logsRes = await fetch(`${API_URL}/api/attendance/logs?date=${todayStr}&t=${timestamp}`, { headers: getAuthHeaders() });
@@ -65,16 +61,19 @@ export class AttendanceComponent implements OnInit {
                 this.processRealLogs(logs);
             }
         } catch (error) {
+            console.error('Error al cargar asistencia:', error);
         }
     }
+
     processRealLogs(logs: any[]) {
         const attendanceMap = new Map<number, any>();
 
         logs.forEach(log => {
-            const userId = log.USERID;
+            const userId = parseInt(log.USERID);
+            if (isNaN(userId)) return;
 
             if (!attendanceMap.has(userId)) {
-                const empInfo = this.employees.find(e => (e.biometricId === userId || e.id === userId));
+                const empInfo = this.employees.find(e => e.biometricId === userId);
 
                 if (empInfo) {
                     attendanceMap.set(userId, {
@@ -92,17 +91,16 @@ export class AttendanceComponent implements OnInit {
                         expectedEntry: empInfo.entryTime || '09:00'
                     });
                 } else {
-                    // Caso de un ID que marcó pero no está registrado en la base de datos de empleados
                     attendanceMap.set(userId, {
                         id: userId,
-                        name: `ID Desconocido (${userId})`,
+                        name: log.NOMBRE || `ID Desconocido (${userId})`,
                         role: '-',
                         department: '-',
                         clockIn: '-- : --',
                         clockOut: '-- : --',
                         status: 'Falta',
                         shift: '09:00 - 18:00',
-                        observation: 'ID no vinculado a ningún empleado',
+                        observation: 'Sincronizado desde biométrico',
                         rawEntry: null,
                         rawExit: null,
                         expectedEntry: '09:00'
@@ -111,6 +109,8 @@ export class AttendanceComponent implements OnInit {
             }
 
             const emp = attendanceMap.get(userId);
+            if (!emp) return;
+
             const checkTime = new Date(log.CHECKTIME);
             const timeStr = checkTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
 
@@ -141,47 +141,67 @@ export class AttendanceComponent implements OnInit {
                 }
             }
             emp.totalHours = this.calculateWorkedHours(emp.clockIn, emp.clockOut);
+            emp.rawTotalHours = this.calculateRawHours(emp.clockIn, emp.clockOut);
             return emp;
         });
         this.attendanceData = finalData;
         this.calculateStats(this.attendanceData);
         this.filterData();
     }
+
     convertToMinutes(time: string): number {
         if (time === '-- : --') return 0;
-
         const [hourMin, period] = time.split(' ');
         let [hours, minutes] = hourMin.split(':').map(Number);
-
         if (period === 'PM' && hours !== 12) hours += 12;
         if (period === 'AM' && hours === 12) hours = 0;
-
         return (hours * 60) + minutes;
     }
-    calculateWorkedHours(clockIn: string, clockOut: string): string {
 
-        if (clockIn === '-- : --' || clockOut === '-- : --') {
-            return '0h 0m';
-        }
+    calculateRawHours(clockIn: string, clockOut: string): string {
+        if (clockIn === '-- : --' || clockOut === '-- : --') return '0.0';
         const inMinutes = this.convertToMinutes(clockIn);
         const outMinutes = this.convertToMinutes(clockOut);
-
         let workedMinutes = outMinutes - inMinutes;
-
-        workedMinutes -= 60;
-
         if (workedMinutes < 0) workedMinutes = 0;
+        return (workedMinutes / 60).toFixed(1);
+    }
 
+    calculateWorkedHours(clockIn: string, clockOut: string): string {
+        if (clockIn === '-- : --' || clockOut === '-- : --') return '0h 0m';
+        const inMinutes = this.convertToMinutes(clockIn);
+        const outMinutes = this.convertToMinutes(clockOut);
+        let workedMinutes = outMinutes - inMinutes;
+        workedMinutes -= 60; // Restar almuerzo
+        if (workedMinutes < 0) workedMinutes = 0;
         const hours = Math.floor(workedMinutes / 60);
         const minutes = workedMinutes % 60;
-
         return `${hours}h ${minutes}m`;
     }
 
-    openEmployeeModal(emp: any) {
+    async openEmployeeModal(emp: any) {
         this.selectedEmployee = emp;
         this.selectedEmployeeHistory = [];
         this.isModalOpen = true;
+
+        try {
+            const res = await fetch(`${API_URL}/api/attendance/history/${emp.id}`, { headers: getAuthHeaders() });
+            if (res.ok) {
+                const allHistory = await res.json();
+
+                // Filtro para mostrar solo el mes actual
+                const now = new Date();
+                const currentMonth = now.getMonth();
+                const currentYear = now.getFullYear();
+
+                this.selectedEmployeeHistory = allHistory.filter((record: any) => {
+                    const recDate = new Date(record.date);
+                    return recDate.getMonth() === currentMonth && recDate.getFullYear() === currentYear;
+                });
+            }
+        } catch (error) {
+            console.error('Error al cargar historial:', error);
+        }
     }
 
     closeModal() {
@@ -205,7 +225,6 @@ export class AttendanceComponent implements OnInit {
         if (this.selectedEmployeeForJustify) {
             const emp = this.attendanceData.find(e => e.id === this.selectedEmployeeForJustify.id);
             if (emp) emp.status = 'Justificado';
-
             this.closeJustifyModal();
             this.calculateStats(this.attendanceData);
             this.filterData();
@@ -215,20 +234,16 @@ export class AttendanceComponent implements OnInit {
     exportEmployeeReport(emp: any) {
         const header = "Fecha,Empleado,Entrada,Salida,Total Horas,Estado\n";
         const row = `${new Date().toLocaleDateString()},${emp.name},${emp.clockIn},${emp.clockOut},${emp.totalHours},${emp.status}\n`;
-
         const blob = new Blob([header + row], { type: 'text/csv;charset=utf-8;' });
         const url = window.URL.createObjectURL(blob);
         const link = document.createElement("a");
-
         link.setAttribute("href", url);
         link.setAttribute("download", `Reporte_Asistencia_${emp.name.replace(/\s+/g, '_')}.csv`);
         link.style.visibility = 'hidden';
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-
     }
-
 
     openObservationModal(emp: any) {
         this.selectedEmployeeForObservation = emp;
@@ -252,15 +267,10 @@ export class AttendanceComponent implements OnInit {
         }
     }
 
-
-
     calculateStats(dataToProcess: any[]) {
         this.totalEmployees = dataToProcess.length > 0 ? dataToProcess.length : this.employees.length;
-
         this.presentToday = dataToProcess.filter(e => e.status === 'Puntual' || e.status === 'Tarde' || e.status === 'Justificado').length;
         this.lateToday = dataToProcess.filter(e => e.status === 'Tarde').length;
-        
-        // Faltas reales = Total de empleados en la BD - los que han marcado hoy
         this.absentToday = (this.employees ? this.employees.length : 0) - dataToProcess.length;
         if (this.absentToday < 0) this.absentToday = 0;
     }
@@ -279,6 +289,7 @@ export class AttendanceComponent implements OnInit {
     }
 
     getInitials(name: string): string {
+        if (!name) return '??';
         return name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
     }
 }

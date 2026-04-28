@@ -50,6 +50,38 @@ async function migrate() {
         `);
         console.log('ATTENDANCE_LOGS table created/verified.');
 
+        // 3. Create BIOMETRIC_USERS table
+        await pool.request().query(`
+            IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='BIOMETRIC_USERS' AND xtype='U')
+            BEGIN
+                CREATE TABLE BIOMETRIC_USERS (
+                    PIN INT PRIMARY KEY,
+                    NAME NVARCHAR(255),
+                    SYNC_DATE DATETIME DEFAULT GETDATE()
+                )
+            END
+        `);
+        console.log('BIOMETRIC_USERS table created/verified.');
+
+        // 4. Create ATTENDANCE_DAILY_REPORTS table
+        await pool.request().query(`
+            IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='ATTENDANCE_DAILY_REPORTS' AND xtype='U')
+            BEGIN
+                CREATE TABLE ATTENDANCE_DAILY_REPORTS (
+                    ID INT IDENTITY(1,1) PRIMARY KEY,
+                    ID_EMPLOYEE INT,
+                    DATE DATE,
+                    FIRST_ENTRY DATETIME,
+                    LAST_EXIT DATETIME,
+                    TOTAL_HOURS DECIMAL(10,2),
+                    STATUS NVARCHAR(50),
+                    CREATED_AT DATETIME DEFAULT GETDATE(),
+                    UNIQUE(ID_EMPLOYEE, DATE)
+                )
+            END
+        `);
+        console.log('ATTENDANCE_DAILY_REPORTS table created/verified.');
+
         await pool.close();
         console.log('Migration completed successfully.');
     } catch (err) {

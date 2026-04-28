@@ -83,7 +83,10 @@
                         </div>
                     </td>
                     <td class="total-hours-cell">
-                        <span class="hours-text">{{ emp.totalHours }}</span>
+                        <div class="hours-info">
+                            <span class="hours-text">{{ emp.totalHours }}</span>
+                            <span class="pending-badge">{{ emp.rawTotalHours }}</span>
+                        </div>
                         <div class="progress-bar-bg" *ngIf="emp.status !== 'Falta'">
                             <div class="progress-fill" [style.width]="emp.status === 'Falta' ? '0%' : '100%'"
                                 [class.bg-success]="emp.status === 'Puntual'"

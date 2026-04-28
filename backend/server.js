@@ -15,7 +15,9 @@ import demoRoutes from './routes/endpoint-demo-test.js';
 const app = express();
 app.set('trust proxy', true);
 
-const pendingCommands = new Map();
+const pendingCommands = new Map(); // SN -> Array of strings (Queue)
+const biometricUsersCache = new Map(); // PIN -> Name
+
 
 
 
@@ -2512,24 +2514,205 @@ app.use((req, res, next) => {
 app.get('/iclock/cdata', (req, res) => {
     const { SN } = req.query;
     if (SN) {
-        console.log(`[ADMS] 📡 Conexión detectada de SN: ${SN}. Solicitando carga forzada de registros (ATTLOG)...`);
-        pendingCommands.set(SN, 'DATA QUERY ATTLOG');
+        console.log(`[ADMS] 📡 Conexión detectada de SN: ${SN}. Solicitando carga forzada de registros (ATTLOG y USERINFO)...`);
+
+        if (!pendingCommands.has(SN)) {
+            pendingCommands.set(SN, []);
+        }
+
+        const queue = pendingCommands.get(SN);
+        if (!queue.includes('DATA QUERY ATTLOG')) queue.push('DATA QUERY ATTLOG');
+        if (!queue.includes('DATA QUERY USERINFO')) queue.push('DATA QUERY USERINFO');
+        if (!queue.includes('DATA QUERY USER')) queue.push('DATA QUERY USER');
+        if (!queue.includes('DATA QUERY USERDATA')) queue.push('DATA QUERY USERDATA');
+        if (!queue.includes('DATA QUERY PIN2NAME')) queue.push('DATA QUERY PIN2NAME');
     }
     res.setHeader('Content-Type', 'text/plain');
     res.end('OK\n');
 });
 
+async function syncBiometricUserToDB(pin, name) {
+    try {
+        const pool = await poolPlanilla;
+        if (!pool) return;
+
+        await pool.request()
+            .input('pin', mssql.Int, pin)
+            .input('name', mssql.NVarChar, name)
+            .query(`
+                IF EXISTS (SELECT 1 FROM BIOMETRIC_USERS WHERE PIN = @pin)
+                    UPDATE BIOMETRIC_USERS SET NAME = @name, SYNC_DATE = GETDATE() WHERE PIN = @pin
+                ELSE
+                    INSERT INTO BIOMETRIC_USERS (PIN, NAME) VALUES (@pin, @name)
+            `);
+
+        console.log(`[DB-SYNC] Usuario sincronizado: ${name} (PIN: ${pin})`);
+
+        const linkResult = await pool.request()
+            .input('pin', mssql.Int, pin)
+            .input('name', mssql.NVarChar, name.trim().toUpperCase())
+            .query(`
+                UPDATE EMPLOYEES 
+                SET BIOMETRIC_ID = @pin 
+                OUTPUT inserted.NOMBRE, inserted.APELLIDOS
+                WHERE (BIOMETRIC_ID IS NULL OR BIOMETRIC_ID = 0)
+                AND (
+                    REPLACE(NOMBRE + ' ' + APELLIDOS, ' ', '') LIKE '%' + REPLACE(@name, ' ', '') + '%'
+                    OR REPLACE(@name, ' ', '') LIKE '%' + REPLACE(NOMBRE, ' ', '') + '%'
+                )
+            `);
+
+        if (linkResult.recordset.length > 0) {
+            const emp = linkResult.recordset[0];
+            console.log(`[DB-SYNC] 🔗 ¡Vínculo exitoso! ${emp.NOMBRE} ${emp.APELLIDOS} asociado al PIN ${pin}`);
+        } else {
+            console.log(`[DB-SYNC] No se encontró coincidencia automática para: ${name} (PIN: ${pin})`);
+        }
+    } catch (err) {
+        console.error('[DB-SYNC] Error vinculando usuario:', err);
+    }
+}
+
+// --- CÁLCULO DE REPORTES DIARIOS ---
+async function updateDailyReport(biometricId, dateStr) {
+    try {
+        const pool = await poolPlanilla;
+        if (!pool) return;
+
+        // 1. Obtener logs del día
+        const logsRes = await pool.request()
+            .input('bid', mssql.Int, biometricId)
+            .input('date', mssql.Date, dateStr)
+            .query(`
+                SELECT CHECKTIME, CHECKTYPE 
+                FROM ATTENDANCE_LOGS 
+                WHERE USERID = @bid AND CAST(CHECKTIME AS DATE) = @date
+                ORDER BY CHECKTIME ASC
+            `);
+
+        if (logsRes.recordset.length === 0) return;
+
+        const firstEntry = logsRes.recordset[0].CHECKTIME;
+        const lastExit = logsRes.recordset[logsRes.recordset.length - 1].CHECKTIME;
+        const empRes = await pool.request()
+            .input('bid', mssql.Int, biometricId)
+            .query('SELECT ID_EMPLOYEE, ENTRY_TIME FROM EMPLOYEES WHERE BIOMETRIC_ID = @bid');
+
+        if (empRes.recordset.length === 0) return;
+
+        const emp = empRes.recordset[0];
+        const idEmployee = emp.ID_EMPLOYEE;
+        const expectedEntry = emp.ENTRY_TIME || '09:00';
+        let status = 'Puntual';
+        const [expH, expM] = expectedEntry.split(':').map(Number);
+
+        const actualH = firstEntry.getHours();
+        const actualM = firstEntry.getMinutes();
+
+        if (actualH > expH || (actualH === expH && actualM > expM + 10)) {
+            status = 'Tarde';
+        }
+
+        const diffMs = lastExit.getTime() - firstEntry.getTime();
+        let hoursRaw = diffMs / (1000 * 60 * 60);
+
+        if (hoursRaw > 4) {
+            hoursRaw -= 1;
+        }
+
+        const totalHours = Math.max(0, hoursRaw).toFixed(2);
+
+        await pool.request()
+            .input('idEmp', mssql.Int, idEmployee)
+            .input('date', mssql.Date, dateStr)
+            .input('entry', mssql.DateTime, firstEntry)
+            .input('exit', mssql.DateTime, lastExit)
+            .input('hours', mssql.Decimal(10, 2), totalHours)
+            .input('status', mssql.NVarChar, status)
+            .query(`
+                IF EXISTS (SELECT 1 FROM ATTENDANCE_DAILY_REPORTS WHERE ID_EMPLOYEE = @idEmp AND DATE = @date)
+                    UPDATE ATTENDANCE_DAILY_REPORTS 
+                    SET FIRST_ENTRY = @entry, LAST_EXIT = @exit, TOTAL_HOURS = @hours, STATUS = @status
+                    WHERE ID_EMPLOYEE = @idEmp AND DATE = @date
+                ELSE
+                    INSERT INTO ATTENDANCE_DAILY_REPORTS (ID_EMPLOYEE, DATE, FIRST_ENTRY, LAST_EXIT, TOTAL_HOURS, STATUS)
+                    VALUES (@idEmp, @date, @entry, @exit, @hours, @status)
+            `);
+
+        console.log(`[REPORTS] Reporte actualizado para Emp ${idEmployee} el ${dateStr}: ${status}, ${totalHours}h`);
+
+    } catch (err) {
+        console.error('[REPORTS] Error actualizando reporte diario:', err);
+    }
+}
+
 app.post('/iclock/cdata', async (req, res) => {
     const { SN, table } = req.query;
 
-    if (table !== 'ATTLOG') {
+    if (table !== 'ATTLOG' && table !== 'USERINFO' && table !== 'USER' && table !== 'OPERLOG') {
+        if (req.body && req.body.length > 0) {
+            console.log(`[ADMS-DEBUG] Tabla desconocida recibida: ${table}. Body length: ${req.body.length}`);
+        }
         return res.end('OK\n');
     }
 
     if (!req.body || typeof req.body !== 'string' || req.body.length === 0) {
-        console.log('[ADMS] Body vacío o formato incorrecto');
+        console.log(`[ADMS] Body vacío o formato incorrecto para tabla ${table}`);
         return res.end('OK\n');
     }
+
+    if (table === 'USERINFO' || table === 'USER' || table === 'OPERLOG') {
+        try {
+            const bodyContent = req.body.toString();
+            const lines = bodyContent.split('\n');
+            let userCount = 0;
+
+            for (let line of lines) {
+                line = line.trim();
+                if (!line) continue;
+
+                let cleanLine = line;
+                if (table === 'OPERLOG') {
+                    if (line.startsWith('USER ')) {
+                        cleanLine = line.substring(5);
+                    } else {
+                        continue;
+                    }
+                }
+
+                const data = {};
+                cleanLine.split('\t').forEach(p => {
+                    const [keyVal, ...rest] = p.split('=');
+                    if (keyVal && rest.length > 0) {
+                        data[keyVal.trim().toUpperCase()] = rest.join('=').trim();
+                    }
+                });
+
+                const pin = data.PIN || data.USERID;
+                const name = data.NAME || `Usuario sin nombre (ID: ${pin})`;
+
+                if (pin) {
+                    biometricUsersCache.set(pin.toString(), name);
+                    userCount++;
+
+                    // Persistir en DB y vincular
+                    syncBiometricUserToDB(pin, name);
+
+                    if (!data.NAME) {
+                        console.log(`[ADMS-DEBUG] Usuario detectado sin nombre en ${table}. ID: ${pin}`);
+                    }
+                }
+            }
+            if (userCount > 0) {
+                console.log(`[ADMS] OK: ${userCount} usuarios sincronizados en memoria (desde ${table}) para SN: ${SN}`);
+            }
+            return res.end('OK\n');
+        } catch (err) {
+            console.error(`[ADMS] Error procesando ${table}:`, err);
+            return res.end('ERROR\n');
+        }
+    }
+
 
     try {
         const pool = await poolPlanilla;
@@ -2571,6 +2754,7 @@ app.post('/iclock/cdata', async (req, res) => {
             }
 
             if (userid && checktime && !isNaN(parseInt(userid)) && !isNaN(new Date(checktime).getTime())) {
+                console.log(`[ADMS-ATTLOG] 🕒 Registro Recibido: User=${userid}, Time=${checktime}`);
                 try {
                     await pool.request()
                         .input('sn', mssql.NVarChar, SN)
@@ -2582,6 +2766,10 @@ app.post('/iclock/cdata', async (req, res) => {
                             VALUES (@sn, @userid, @checktime, @type)
                         `);
                     savedCount++;
+
+                    // Actualizar reporte diario después de insertar el log
+                    const dateOnly = new Date(checktime).toISOString().split('T')[0];
+                    updateDailyReport(parseInt(userid), dateOnly);
                 } catch (dbErr) {
                     if (!dbErr.message.includes('PRIMARY KEY') && !dbErr.message.includes('unique')) {
                         console.error(`[ADMS] SQL Error para USERID ${userid}:`, dbErr.message);
@@ -2604,14 +2792,44 @@ app.get('/iclock/getrequest', (req, res) => {
     const { SN } = req.query;
     res.setHeader('Content-Type', 'text/plain');
 
-    if (SN && pendingCommands.has(SN)) {
-        const cmd = pendingCommands.get(SN);
-        pendingCommands.delete(SN);
-        console.log(`[ADMS] Enviando orden de sincronización forzada a SN: ${SN}`);
-        return res.end(`C:101:${cmd}\n`);
+    if (SN) {
+        if (!pendingCommands.has(SN)) {
+            console.log(`[ADMS] 📡 Primera poll detectada de SN: ${SN}. Iniciando sync...`);
+            pendingCommands.set(SN, ['DATA QUERY ATTLOG', 'DATA QUERY USERINFO', 'DATA QUERY USER', 'DATA QUERY USERDATA', 'DATA QUERY PIN2NAME']);
+        }
+
+        const queue = pendingCommands.get(SN);
+        if (queue && queue.length > 0) {
+            const cmd = queue.shift();
+            console.log(`[ADMS] Enviando orden (${cmd}) a SN: ${SN}. Pendientes: ${queue.length}`);
+
+            return res.end(`C:101:${cmd}\n`);
+        }
     }
 
     res.end('OK\n');
+});
+
+app.get('/api/attendance/force-biometric-sync', (req, res) => {
+    const { SN } = req.query;
+    if (!SN) return res.status(400).json({ error: 'Falta SN' });
+
+    console.log(`[ADMS] 🔄 Forzando sincronización manual para SN: ${SN}`);
+    pendingCommands.set(SN, ['DATA QUERY ATTLOG', 'DATA QUERY USERINFO', 'DATA QUERY USER', 'DATA QUERY USERDATA', 'DATA QUERY PIN2NAME']);
+
+    res.json({ message: `Sincronización encolada para ${SN}. El equipo la recibirá en su próxima consulta.` });
+});
+
+app.get('/api/attendance/debug-biometric-users', (req, res) => {
+    const users = Array.from(biometricUsersCache.entries()).map(([pin, name]) => ({
+        pin,
+        name
+    }));
+    console.log(`[DEBUG-API] Consultando cache de usuarios. Total en memoria: ${users.length}`);
+    res.json({
+        total: users.length,
+        users
+    });
 });
 
 app.post('/iclock/devicecmd', (req, res) => {
@@ -2619,14 +2837,60 @@ app.post('/iclock/devicecmd', (req, res) => {
     res.end('OK\n');
 });
 
+app.get('/api/attendance/history/:idEmployee', async (req, res) => {
+    try {
+        const pool = await poolPlanilla;
+        const { idEmployee } = req.params;
+
+        const result = await pool.request()
+            .input('idEmp', mssql.Int, idEmployee)
+            .query(`
+                SELECT * FROM ATTENDANCE_DAILY_REPORTS 
+                WHERE ID_EMPLOYEE = @idEmp 
+                ORDER BY DATE DESC
+            `);
+
+        const history = result.recordset.map(row => {
+            const formatTime = (date) => {
+                if (!date) return '-- : --';
+                const d = new Date(date.getTime() - (date.getTimezoneOffset() * 60000));
+                return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+            };
+
+            return {
+                date: row.DATE,
+                clockIn: formatTime(row.FIRST_ENTRY),
+                clockOut: formatTime(row.LAST_EXIT),
+                totalHours: `${row.TOTAL_HOURS}h`,
+                status: row.STATUS
+            };
+        });
+
+        res.json(history);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 app.get('/api/attendance/logs', async (req, res) => {
     try {
         const pool = await poolPlanilla;
         const { date } = req.query;
+
         let query = `
-            SELECT l.*, e.NOMBRE, e.APELLIDOS, e.CARGO, e.DEPARTAMENTO, e.ENTRY_TIME, e.EXIT_TIME, e.JORNADA_LABORAL
+            SELECT 
+                l.*, 
+                e.NOMBRE as EMP_NOMBRE,
+                e.APELLIDOS as EMP_APELLIDOS,
+                bu.NAME as BIO_NAME,
+                e.CARGO, 
+                e.DEPARTAMENTO, 
+                e.ENTRY_TIME, 
+                e.EXIT_TIME, 
+                e.JORNADA_LABORAL
             FROM ATTENDANCE_LOGS l
-            LEFT JOIN EMPLOYEES e ON l.USERID = e.BIOMETRIC_ID
+            LEFT JOIN EMPLOYEES e ON CAST(l.USERID AS INT) = CAST(e.BIOMETRIC_ID AS INT)
+            LEFT JOIN BIOMETRIC_USERS bu ON CAST(l.USERID AS INT) = CAST(bu.PIN AS INT)
         `;
 
         if (date) {
@@ -2634,9 +2898,44 @@ app.get('/api/attendance/logs', async (req, res) => {
         }
 
         const result = await pool.request().query(query + ' ORDER BY l.CHECKTIME DESC');
-        res.json(result.recordset);
+
+        // Formatear para evitar el desfase de zona horaria (UTC -> Local)
+        const logs = result.recordset.map(log => {
+            const nombre = log.EMP_NOMBRE || log.BIO_NAME || `ID Desconocido (${log.USERID})`;
+            const apellidos = log.EMP_APELLIDOS || '';
+
+            // Convertimos la fecha a un string local ISO sin la 'Z' para que el navegador no la mueva
+            const checkTimeLocal = log.CHECKTIME ? new Date(log.CHECKTIME.getTime() - (log.CHECKTIME.getTimezoneOffset() * 60000)).toISOString().slice(0, 19).replace('T', ' ') : null;
+
+            return {
+                ...log,
+                NOMBRE: nombre,
+                APELLIDOS: apellidos,
+                CHECKTIME: checkTimeLocal // Enviamos el string literal "YYYY-MM-DD HH:mm:ss"
+            };
+        });
+
+        res.json(logs);
     } catch (error) {
+        console.error('[API] Error al obtener logs:', error);
         res.status(500).json({ error: 'Error al obtener registros de asistencia' });
+    }
+});
+
+app.get('/api/attendance/raw-logs', async (req, res) => {
+    try {
+        const pool = await poolPlanilla;
+        const result = await pool.request().query('SELECT TOP 50 * FROM ATTENDANCE_LOGS ORDER BY CHECKTIME DESC');
+
+        // Aplicamos el mismo ajuste de zona horaria para raw-logs
+        const logs = result.recordset.map(log => ({
+            ...log,
+            CHECKTIME: log.CHECKTIME ? new Date(log.CHECKTIME.getTime() - (log.CHECKTIME.getTimezoneOffset() * 60000)).toISOString().slice(0, 19).replace('T', ' ') : null
+        }));
+
+        res.json(logs);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
 });
 
@@ -2652,6 +2951,16 @@ app.get('*', (req, res) => {
 const admsPort = 8081;
 const admsServer = http.createServer(app);
 admsServer.listen(admsPort, '0.0.0.0', () => {
+});
+
+app.get('/api/attendance/raw-logs', async (req, res) => {
+    try {
+        const pool = await poolPlanilla;
+        const result = await pool.request().query('SELECT TOP 50 * FROM ATTENDANCE_LOGS ORDER BY CHECKTIME DESC');
+        res.json(result.recordset);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
 app.use((err, req, res, next) => {
