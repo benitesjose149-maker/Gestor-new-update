@@ -10,6 +10,7 @@ import { API_URL, getAuthHeaders } from '../api-config';
     templateUrl: './attendance.html',
     styleUrl: './attendance.css'
 })
+
 export class AttendanceComponent implements OnInit {
 
     today: Date = new Date();
@@ -68,6 +69,29 @@ export class AttendanceComponent implements OnInit {
     processRealLogs(logs: any[]) {
         const attendanceMap = new Map<number, any>();
 
+        // Pre-poblar el mapa con todos los empleados registrados
+        if (this.employees && this.employees.length > 0) {
+            this.employees.forEach(empInfo => {
+                if (empInfo.biometricId) {
+                    attendanceMap.set(empInfo.biometricId, {
+                        id: empInfo.id,
+                        name: `${empInfo.nombre} ${empInfo.apellidos}`,
+                        role: empInfo.cargo || 'Personal',
+                        department: empInfo.departamento || '-',
+                        clockIn: '-- : --',
+                        clockOut: '-- : --',
+                        status: 'Falta',
+                        shift: `${empInfo.entryTime || '09:00'} - ${empInfo.exitTime || '18:00'}`,
+                        observation: '',
+                        rawEntry: null,
+                        rawExit: null,
+                        expectedEntry: empInfo.entryTime || '09:00',
+                        punches: []
+                    });
+                }
+            });
+        }
+
         logs.forEach(log => {
             const userId = parseInt(log.USERID);
             if (isNaN(userId)) return;
@@ -88,7 +112,8 @@ export class AttendanceComponent implements OnInit {
                         observation: '',
                         rawEntry: null,
                         rawExit: null,
-                        expectedEntry: empInfo.entryTime || '09:00'
+                        expectedEntry: empInfo.entryTime || '09:00',
+                        punches: []
                     });
                 } else {
                     attendanceMap.set(userId, {
@@ -103,7 +128,8 @@ export class AttendanceComponent implements OnInit {
                         observation: 'Sincronizado desde biométrico',
                         rawEntry: null,
                         rawExit: null,
-                        expectedEntry: '09:00'
+                        expectedEntry: '09:00',
+                        punches: []
                     });
                 }
             }
@@ -112,23 +138,26 @@ export class AttendanceComponent implements OnInit {
             if (!emp) return;
 
             const checkTime = new Date(log.CHECKTIME);
-            const timeStr = checkTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
 
-            if (log.CHECKTYPE === 0 || !emp.rawEntry) {
-                if (!emp.rawEntry || checkTime < emp.rawEntry) {
-                    emp.rawEntry = checkTime;
-                    emp.clockIn = timeStr;
-                }
+            if (!emp.punches) {
+                emp.punches = [];
             }
-            if (log.CHECKTYPE === 1 || !emp.rawExit) {
-                if (!emp.rawExit || checkTime > emp.rawExit) {
-                    emp.rawExit = checkTime;
-                    emp.clockOut = timeStr;
-                }
-            }
+            emp.punches.push(checkTime);
         });
 
         const finalData = Array.from(attendanceMap.values()).map(emp => {
+            if (emp.punches && emp.punches.length > 0) {
+                emp.punches.sort((a: Date, b: Date) => a.getTime() - b.getTime());
+
+                emp.rawEntry = emp.punches[0];
+                emp.clockIn = emp.rawEntry.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+
+                if (emp.punches.length > 1) {
+                    emp.rawExit = emp.punches[emp.punches.length - 1];
+                    emp.clockOut = emp.rawExit.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+                }
+            }
+
             if (emp.rawEntry) {
                 const [expH, expM] = emp.expectedEntry.split(':').map(Number);
                 const entryH = emp.rawEntry.getHours();
@@ -144,6 +173,15 @@ export class AttendanceComponent implements OnInit {
             emp.rawTotalHours = this.calculateRawHours(emp.clockIn, emp.clockOut);
             return emp;
         });
+
+        finalData.sort((a, b) => {
+            const aIsAbsent = a.status === 'Falta' && a.clockIn === '-- : --';
+            const bIsAbsent = b.status === 'Falta' && b.clockIn === '-- : --';
+            if (aIsAbsent && !bIsAbsent) return 1;
+            if (!aIsAbsent && bIsAbsent) return -1;
+            return 0;
+        });
+
         this.attendanceData = finalData;
         this.calculateStats(this.attendanceData);
         this.filterData();
@@ -189,7 +227,6 @@ export class AttendanceComponent implements OnInit {
             if (res.ok) {
                 const allHistory = await res.json();
 
-                // Filtro para mostrar solo el mes actual
                 const now = new Date();
                 const currentMonth = now.getMonth();
                 const currentYear = now.getFullYear();
@@ -197,6 +234,12 @@ export class AttendanceComponent implements OnInit {
                 this.selectedEmployeeHistory = allHistory.filter((record: any) => {
                     const recDate = new Date(record.date);
                     return recDate.getMonth() === currentMonth && recDate.getFullYear() === currentYear;
+                }).map((record: any) => {
+                    if (record.clockIn && record.clockIn !== '-- : --' && record.clockIn === record.clockOut) {
+                        record.clockOut = '-- : --';
+                        record.totalHours = '0h';
+                    }
+                    return record;
                 });
             }
         } catch (error) {
@@ -212,6 +255,10 @@ export class AttendanceComponent implements OnInit {
 
     openJustifyModal(emp: any) {
         this.selectedEmployeeForJustify = emp;
+        this.justificationData = {
+            reason: emp.justificationReason || '',
+            documentType: emp.justificationType || 'Certificado Médico'
+        };
         this.isJustifyModalOpen = true;
     }
 
@@ -224,7 +271,11 @@ export class AttendanceComponent implements OnInit {
     submitJustification() {
         if (this.selectedEmployeeForJustify) {
             const emp = this.attendanceData.find(e => e.id === this.selectedEmployeeForJustify.id);
-            if (emp) emp.status = 'Justificado';
+            if (emp) {
+                emp.status = 'Justificado';
+                emp.justificationReason = this.justificationData.reason;
+                emp.justificationType = this.justificationData.documentType;
+            }
             this.closeJustifyModal();
             this.calculateStats(this.attendanceData);
             this.filterData();

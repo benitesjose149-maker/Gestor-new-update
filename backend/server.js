@@ -2001,12 +2001,12 @@ app.get('/api/whmcs/invoices', async (req, res) => {
             .query(`
                 SELECT 
                     COUNT(*) as total,
-                    SUM(ISNULL(MontoBruto, 0)) as totalGross,
-                    SUM(CASE WHEN (Banco = 'Caja Virtual' OR CuentaDebito IN ('Izipay cobrado', 'Caja virtual')) AND EstadoLocal IN ('Pagado', 'Conciliado') THEN ISNULL(DepositoSalida, 0) ELSE 0 END) as totalCajaVirtual,
-                    SUM(CASE WHEN (Banco = 'Caja Virtual' OR CuentaDebito IN ('Izipay cobrado', 'Caja virtual', 'Izipay por cobrar')) AND EstadoLocal = 'Pendiente' THEN ISNULL(DepositoSalida, 0) ELSE 0 END) as totalCajaVirtualPendiente,
-                    SUM(CASE WHEN CuentaDebito = 'BCP' THEN ISNULL(MontoBruto, 0) ELSE 0 END) as totalBcp,
-                    SUM(CASE WHEN CuentaDebito = 'INTERBANK' THEN ISNULL(MontoBruto, 0) ELSE 0 END) as totalInterbank,
-                    SUM(ISNULL(Comision, 0)) as totalComisiones
+                    SUM(CASE WHEN MONTH(Fecha) = @month AND YEAR(Fecha) = @year THEN ISNULL(MontoBruto, 0) ELSE 0 END) as totalGross,
+                    SUM(CASE WHEN Banco = 'Caja Virtual' AND EstadoLocal IN ('Pagado', 'Conciliado') AND MONTH(Fecha) = @month AND YEAR(Fecha) = @year THEN ISNULL(DepositoSalida, 0) ELSE 0 END) as totalCajaVirtual,
+                    SUM(CASE WHEN Banco = 'Caja Virtual' AND EstadoLocal = 'Pendiente' AND MONTH(Fecha) = @month AND YEAR(Fecha) = @year THEN ISNULL(DepositoSalida, 0) ELSE 0 END) as totalCajaVirtualPendiente,
+                    SUM(CASE WHEN CuentaDebito = 'BCP' AND MONTH(Fecha) = @month AND YEAR(Fecha) = @year THEN ISNULL(MontoBruto, 0) ELSE 0 END) as totalBcp,
+                    SUM(CASE WHEN CuentaDebito = 'INTERBANK' AND MONTH(Fecha) = @month AND YEAR(Fecha) = @year THEN ISNULL(MontoBruto, 0) ELSE 0 END) as totalInterbank,
+                    SUM(CASE WHEN MONTH(Fecha) = @month AND YEAR(Fecha) = @year THEN ISNULL(Comision, 0) ELSE 0 END) as totalComisiones
                 FROM FINANCE_INVOICES 
                 WHERE ( (MONTH(Fecha) = @month AND YEAR(Fecha) = @year) 
                         OR (MONTH(UpdatedAt) = @month AND YEAR(UpdatedAt) = @year) )

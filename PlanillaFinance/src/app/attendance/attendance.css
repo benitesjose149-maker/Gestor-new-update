@@ -206,8 +206,14 @@
     vertical-align: middle;
 }
 
-.attendance-row:hover td {
+.attendance-row:not(.row-absent):hover td {
     background: #f8fafc;
+}
+
+.attendance-row.row-absent td {
+    opacity: 0.45;
+    background-color: #fafafa;
+    filter: grayscale(40%);
 }
 
 .emp-profile-cell {

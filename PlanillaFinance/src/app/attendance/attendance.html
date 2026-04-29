@@ -55,7 +55,7 @@
                 </tr>
             </thead>
             <tbody>
-                <tr *ngFor="let emp of displayedData" class="attendance-row">
+                <tr *ngFor="let emp of displayedData" class="attendance-row" [class.row-absent]="emp.status === 'Falta' && emp.clockIn === '-- : --'">
                     <td>
                         <div class="emp-profile-wrapper interactive-name" (click)="openEmployeeModal(emp)"
                             style="display: flex; align-items: center; gap: 1rem; cursor: pointer; transition: all 0.2s;">
@@ -77,8 +77,7 @@
                             </div>
                             <div class="time-block">
                                 <span class="time-label">SALIDA</span>
-                                <span class="time-value" [class.danger]="emp.status === 'Falta'">{{ emp.clockOut
-                                    }}</span>
+                                <span class="time-value" [class.danger]="emp.status === 'Falta'">{{emp.clockOut}}</span>
                             </div>
                         </div>
                     </td>
@@ -107,7 +106,7 @@
                                 <i class="fa-solid fa-eye"></i>
                             </button>
                             <button class="action-btn text-success" title="Justificar"
-                                *ngIf="emp.status === 'Falta' || emp.status === 'Tarde'"
+                                *ngIf="emp.status === 'Falta' || emp.status === 'Tarde' || emp.status === 'Justificado'"
                                 (click)="openJustifyModal(emp)">
                                 <i class="fa-solid fa-shield-halved"></i>
                             </button>
