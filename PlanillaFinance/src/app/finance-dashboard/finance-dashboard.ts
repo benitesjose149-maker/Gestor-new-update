@@ -56,12 +56,37 @@ export class FinanceDashboardComponent implements OnInit {
     codigosContables: any[] = [];
     transactionStatuses: any[] = [];
 
+    filters = {
+        searchText: '',
+        banco: '',
+        tipoMov: '',
+        numFactura: '',
+        fecha: ''
+    };
+
+    selectedMonth: number;
+    selectedYear: number;
+    months = [
+        { id: 1, name: 'Enero' }, { id: 2, name: 'Febrero' }, { id: 3, name: 'Marzo' },
+        { id: 4, name: 'Abril' }, { id: 5, name: 'Mayo' }, { id: 6, name: 'Junio' },
+        { id: 7, name: 'Julio' }, { id: 8, name: 'Agosto' }, { id: 9, name: 'Septiembre' },
+        { id: 10, name: 'Octubre' }, { id: 11, name: 'Noviembre' }, { id: 12, name: 'Diciembre' }
+    ];
+    years: number[] = [];
+
     constructor(
         private cdr: ChangeDetectorRef,
         private notification: NotificationService,
         private audit: AuditService,
         private route: ActivatedRoute
-    ) { }
+    ) {
+        const now = new Date();
+        this.selectedMonth = now.getMonth() + 1;
+        this.selectedYear = now.getFullYear();
+        for (let i = 0; i < 3; i++) {
+            this.years.push(this.selectedYear - i);
+        }
+    }
 
     ngOnInit() {
         this.loadAll();
@@ -77,8 +102,8 @@ export class FinanceDashboardComponent implements OnInit {
         }
 
         try {
-            const currentMonth = new Date().getMonth() + 1;
-            const currentYear = new Date().getFullYear();
+            const currentMonth = this.selectedMonth;
+            const currentYear = this.selectedYear;
 
             const parseToLocalMidnight = (dateInput: any) => {
                 if (!dateInput) return 0;
@@ -289,19 +314,9 @@ export class FinanceDashboardComponent implements OnInit {
         }
     }
 
-    filters = {
-        searchText: '',
-        banco: '',
-        tipoMov: '',
-        numFactura: '',
-        fecha: ''
-    };
-
     get filteredItems(): any[] {
-        const now = new Date();
-        const cm = now.getMonth();
-        const cy = now.getFullYear();
-
+        const cm = this.selectedMonth - 1;
+        const cy = this.selectedYear;
         const qid = this.route.snapshot.queryParams['highlight'];
 
         return this.items.filter(it => {
@@ -408,8 +423,8 @@ export class FinanceDashboardComponent implements OnInit {
     }
 
     getCurrentMonth(): string {
-        const months = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-        return months[new Date().getMonth()] + ' ' + new Date().getFullYear();
+        const monthName = this.months.find(m => m.id === this.selectedMonth)?.name || '';
+        return monthName + ' ' + this.selectedYear;
     }
 
     toggleEdit(inv: any) {

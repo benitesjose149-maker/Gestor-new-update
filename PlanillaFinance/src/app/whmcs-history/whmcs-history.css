@@ -136,6 +136,108 @@
     background: #f8fafc;
 }
 
+.egreso-row {
+    background-color: #fff1f2 !important; /* Rojo muy suave */
+}
+
+.egreso-row:hover {
+    background-color: #ffe4e6 !important;
+}
+
+.badge-status {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    background: #f1f5f9;
+    color: #64748b;
+}
+
+.badge-egreso {
+    background-color: #be123c;
+    color: white;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: bold;
+}
+
+.badge-status[data-status="Conciliado"] {
+    background: #dcfce7;
+    color: #15803d;
+}
+
+.badge-status[data-status="Pagado"] {
+    background: #dcfce7;
+    color: #15803d;
+}
+
+.badge-status[data-status="Pendiente"] {
+    background: #fef2f2;
+    color: #dc2626;
+}
+
+.badge-status[data-status="No Conciliado"] {
+    background: #fef3c7;
+    color: #b45309;
+}
+
+.bank-modal {
+    max-width: 600px;
+}
+
+.bank-sections {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.bank-section {
+    flex: 1;
+    padding: 15px;
+    border-radius: 8px;
+    text-align: center;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+}
+
+.bank-header {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    color: #64748b;
+}
+
+.bank-header i {
+    font-size: 1.5rem;
+}
+
+.bank-header h4 {
+    margin: 0;
+    font-size: 0.8rem;
+    font-weight: 700;
+}
+
+.bank-value {
+    font-size: 1.1rem;
+    font-weight: 800;
+    color: #1e293b;
+}
+
+.bank-section.bcp { border-top: 4px solid #1e3a8a; }
+.bank-section.interbank { border-top: 4px solid #10b981; }
+.bank-section.caja { border-top: 4px solid #be123c; }
+
+.modal-note {
+    font-size: 0.75rem;
+    color: #94a3b8;
+    text-align: center;
+    font-style: italic;
+}
+
 .history-table tbody tr:hover {
     background: #f1f5f9;
 }
@@ -353,8 +455,18 @@
 .close-btn { background: none; border: none; color: white; font-size: 1.25rem; cursor: pointer; }
 
 /* Status Classes */
-.text-danger { color: #dc2626 !important; }
-.text-success { color: #059669 !important; }
+.text-danger { color: #dc2626; }
+.text-success { color: #15803d; }
+.text-egreso { color: #be123c; }
+
+.summary-cards .card.card-egresos {
+    border-left: 4px solid #be123c;
+}
+
+.summary-cards .card.card-neto {
+    border-left: 4px solid #10b981;
+}
+
 .text-primary { color: #2563eb !important; }
 
 .empty-state {

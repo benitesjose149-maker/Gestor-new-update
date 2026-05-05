@@ -69,7 +69,6 @@ export class AttendanceComponent implements OnInit {
     processRealLogs(logs: any[]) {
         const attendanceMap = new Map<number, any>();
 
-        // Pre-poblar el mapa con todos los empleados registrados
         if (this.employees && this.employees.length > 0) {
             this.employees.forEach(empInfo => {
                 if (empInfo.biometricId) {
@@ -153,8 +152,17 @@ export class AttendanceComponent implements OnInit {
                 emp.clockIn = emp.rawEntry.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
 
                 if (emp.punches.length > 1) {
-                    emp.rawExit = emp.punches[emp.punches.length - 1];
-                    emp.clockOut = emp.rawExit.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+                    const firstPunch = emp.punches[0];
+                    const lastPunch = emp.punches[emp.punches.length - 1];
+                    const diffMs = lastPunch.getTime() - firstPunch.getTime();
+                    const diffMins = diffMs / (1000 * 60);
+
+                    if (diffMins > 5) {
+                        emp.rawExit = lastPunch;
+                        emp.clockOut = emp.rawExit.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+                    } else {
+                        emp.clockOut = '-- : --';
+                    }
                 }
             }
 
@@ -235,9 +243,16 @@ export class AttendanceComponent implements OnInit {
                     const recDate = new Date(record.date);
                     return recDate.getMonth() === currentMonth && recDate.getFullYear() === currentYear;
                 }).map((record: any) => {
-                    if (record.clockIn && record.clockIn !== '-- : --' && record.clockIn === record.clockOut) {
-                        record.clockOut = '-- : --';
-                        record.totalHours = '0h';
+                    if (record.clockIn && record.clockIn !== '-- : --' && record.clockOut && record.clockOut !== '-- : --') {
+                        try {
+                            const inMin = this.convertToMinutes(record.clockIn);
+                            const outMin = this.convertToMinutes(record.clockOut);
+
+                            if (outMin - inMin <= 5) {
+                                record.clockOut = '-- : --';
+                                record.totalHours = '0h';
+                            }
+                        } catch (e) { }
                     }
                     return record;
                 });

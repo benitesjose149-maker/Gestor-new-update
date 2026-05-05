@@ -19,7 +19,6 @@ async function migrate() {
         const pool = await mssql.connect(config);
         console.log('Running migrations...');
 
-        // 1. Update EMPLOYEES table
         await pool.request().query(`
             IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('EMPLOYEES') AND name = 'BIOMETRIC_ID')
                 ALTER TABLE EMPLOYEES ADD BIOMETRIC_ID INT;
@@ -32,7 +31,6 @@ async function migrate() {
         `);
         console.log('EMPLOYEES table updated.');
 
-        // 2. Create ATTENDANCE_LOGS table
         await pool.request().query(`
             IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='ATTENDANCE_LOGS' AND xtype='U')
             BEGIN
@@ -50,7 +48,6 @@ async function migrate() {
         `);
         console.log('ATTENDANCE_LOGS table created/verified.');
 
-        // 3. Create BIOMETRIC_USERS table
         await pool.request().query(`
             IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='BIOMETRIC_USERS' AND xtype='U')
             BEGIN
@@ -63,7 +60,6 @@ async function migrate() {
         `);
         console.log('BIOMETRIC_USERS table created/verified.');
 
-        // 4. Create ATTENDANCE_DAILY_REPORTS table
         await pool.request().query(`
             IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='ATTENDANCE_DAILY_REPORTS' AND xtype='U')
             BEGIN

@@ -914,3 +914,39 @@
 .amount-input:focus {
     outline: none;
 }
+
+.period-selectors {
+    display: flex;
+    gap: 0.5rem;
+    margin-right: 1rem;
+}
+
+.period-selectors .form-select {
+    padding: 0.4rem 0.6rem;
+    border-radius: 6px;
+    border: 1px solid #cbd5e1;
+    background-color: white;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #334155;
+    cursor: pointer;
+    outline: none;
+    transition: all 0.2s;
+    min-width: 100px;
+}
+
+.period-selectors .form-select:hover {
+    border-color: #94a3b8;
+    background: #f8fafc;
+}
+
+.period-selectors .form-select:focus {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.header-actions {
+    display: flex !important;
+    align-items: center !important;
+    gap: 0.5rem !important;
+}

@@ -5,31 +5,37 @@
             <p>Consulta de periodos históricos y desglose de comisiones Izipay.</p>
         </div>
         <div class="header-filters">
-            <select class="form-select" [(ngModel)]="selectedMonth">
+            <select class="form-select" [(ngModel)]="selectedMonth" (change)="loadHistory()">
                 <option *ngFor="let m of months" [value]="m.id">{{ m.name }}</option>
             </select>
-            <select class="form-select" [(ngModel)]="selectedYear">
+            <select class="form-select" [(ngModel)]="selectedYear" (change)="loadHistory()">
                 <option *ngFor="let y of years" [value]="y">{{ y }}</option>
             </select>
             <button class="btn btn-primary" (click)="loadHistory()" [disabled]="loading">
-                <i class="fa fa-search"></i> Consultar
+                <i class="fa-solid fa-magnifying-glass"></i> Consultar
             </button>
             <button class="btn btn-success" (click)="loadHistory(true)" [disabled]="syncing">
-                <i class="fa fa-sync" [class.fa-spin]="syncing"></i> Sincronizar Periodo
+                <i class="fa-solid fa-rotate" [class.fa-spin]="syncing"></i> Sincronizar Periodo
             </button>
         </div>
     </header>
 
     <div class="summary-cards" *ngIf="!loading">
-        <div class="card office-card">
+        <div class="card office-card" (click)="openBanksModal()" style="cursor: pointer;">
             <span class="label">Total Bruto</span>
             <span class="value text-primary">S/ {{ totalGross | number:'1.2-2' }}</span>
+            <small style="font-size: 0.65rem; color: #94a3b8;">Haga clic para ver bancos</small>
         </div>
         <div class="card office-card">
             <span class="label">Total Comisiones (Fees)</span>
             <span class="value text-danger">S/ {{ totalFees | number:'1.2-2' }}</span>
         </div>
-        <div class="card office-card">
+        <div class="card office-card card-egresos">
+            <span class="label">Total Egresos</span>
+            <span class="value text-egreso">S/ {{ totalEgresos | number:'1.2-2' }}</span>
+            <small style="font-size: 0.65rem; color: #94a3b8;">Solo conciliados</small>
+        </div>
+        <div class="card office-card card-neto">
             <span class="label">Neto Real en Caja</span>
             <span class="value text-success">S/ {{ totalNet | number:'1.2-2' }}</span>
         </div>
@@ -47,68 +53,113 @@
                         <th>Comisión</th>
                         <th>Monto Neto</th>
                         <th>Banco / Medio</th>
-                        <th>Acción</th>
+                        <th>ESTADO</th>
+                        <th>ACCIÓN</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr *ngFor="let inv of invoices">
-                        <td class="id-cell">
-                            <span class="invoice-num">#{{ inv.id > 0 ? inv.id : (inv.numFactura || '0') }}</span>
-                            <span class="badge" [ngClass]="(inv.estado || 'Paid').toLowerCase()">{{ inv.estado || 'PAID'
-                                }}</span>
-                        </td>
-                        <td>{{ inv.fecha | date:'dd/MM/yyyy' }}</td>
-                        <td class="client-cell">
+                <tr *ngFor="let inv of invoices" [ngClass]="{'egreso-row': inv.isEgreso}">
+                    <td class="id-cell">
+                        <span *ngIf="!inv.isEgreso" class="invoice-num">#{{ inv.id > 0 ? inv.id : (inv.numFactura || '0') }}</span>
+                        <span *ngIf="inv.isEgreso" class="badge-egreso">EGRESO</span>
+                        <br *ngIf="!inv.isEgreso">
+                        <span *ngIf="!inv.isEgreso" class="badge" [ngClass]="(inv.estado || 'Paid').toLowerCase()">{{ inv.estado || 'PAID' }}</span>
+                    </td>
+                    <td>{{ inv.fecha | date:'dd/MM/yyyy' }}</td>
+                    <td class="client-cell">
+                        <ng-container *ngIf="!inv.isEgreso">
                             <strong>{{ getClientParts(inv.clienteConcepto).empresa }}</strong>
                             <br *ngIf="getClientParts(inv.clienteConcepto).empresa">
                             {{ getClientParts(inv.clienteConcepto).nombre }}
                             <br>
                             <small>{{ getClientParts(inv.clienteConcepto).servicio }}</small>
-                        </td>
-                        <td class="amount">
-                            <div class="input-with-currency" *ngIf="inv.editing">
-                                <span class="currency-prefix">S/</span>
-                                <input type="number" class="cell-input amount-input" [(ngModel)]="inv.montoBruto"
-                                    (ngModelChange)="onMontoBrutoChange(inv)" step="0.01" min="0">
-                            </div>
-                            <span *ngIf="!inv.editing">S/ {{ inv.montoBruto | number:'1.2-2' }}</span>
-                        </td>
-                        <td class="fee">
-                            <div class="input-with-currency text-danger" *ngIf="inv.editing">
-                                <span class="currency-prefix">- S/</span>
-                                <input type="number" class="cell-input amount-input" [(ngModel)]="inv.comision"
-                                    (ngModelChange)="onComisionChange(inv)" step="0.01" min="0">
-                            </div>
-                            <span class="text-danger" *ngIf="!inv.editing">- S/ {{ inv.comision | number:'1.2-2'
-                                }}</span>
-                        </td>
-                        <td class="net"><strong>S/ {{ (inv.montoBruto - inv.comision) | number:'1.2-2' }}</strong></td>
-                        <td>
-                            <div class="bank-pill">
-                                <span class="dot"></span> {{ inv.banco || '--' }}
-                            </div>
-                            <small class="text-muted">{{ inv.tipoMovimiento }}</small>
-                        </td>
-                        <td class="actions-cell">
-                            <button class="btn-icon" (click)="toggleEdit(inv)"
-                                [title]="inv.editing ? 'Guardar' : 'Editar'">
-                                <i class="fa-solid"
-                                    [ngClass]="inv.editing ? 'fa-check text-success' : 'fa-pen text-primary'"></i>
-                            </button>
-                            <button class="btn-icon" (click)="openInvoiceDetail(inv.id)" title="Detalles">
-                                <i class="fa-solid fa-eye"></i>
-                            </button>
-                        </td>
-                    </tr>
+                        </ng-container>
+                        <ng-container *ngIf="inv.isEgreso">
+                            <strong>{{ inv.comercio }}</strong>
+                            <br>
+                            <small class="text-danger">{{ inv.categoria }}</small>
+                        </ng-container>
+                    </td>
+                    <td class="amount-cell">
+                        <div *ngIf="inv.editing && !inv.isEgreso" class="input-container">
+                            <input type="number" class="cell-input" [(ngModel)]="inv.montoBruto" (ngModelChange)="onMontoBrutoChange(inv)" step="0.01">
+                        </div>
+                        <span *ngIf="!inv.editing || inv.isEgreso">S/ {{ inv.montoBruto | number:'1.2-2' }}</span>
+                    </td>
+                    <td class="fee-cell">
+                        <div *ngIf="inv.editing && !inv.isEgreso" class="input-container">
+                            <input type="number" class="cell-input" [(ngModel)]="inv.comision" (ngModelChange)="onComisionChange(inv)" step="0.01">
+                        </div>
+                        <span class="text-danger" *ngIf="!inv.editing || inv.isEgreso">- S/ {{ inv.comision | number:'1.2-2' }}</span>
+                    </td>
+                    <td class="net-cell"><strong>S/ {{ (inv.montoBruto - inv.comision) | number:'1.2-2' }}</strong></td>
+                    <td>
+                        <span class="bank-tag">{{ inv.banco || '--' }}</span>
+                        <br>
+                        <small class="text-muted" *ngIf="inv.tipoMovimiento">{{ inv.tipoMovimiento }}</small>
+                    </td>
+                    <td>
+                        <select *ngIf="inv.editing && !inv.isEgreso" class="cell-select" [(ngModel)]="inv.estadoLocal" (change)="onFieldChange(inv)">
+                            <option *ngFor="let st of transactionStatuses" [value]="st.name">{{ st.name }}</option>
+                        </select>
+                        <span *ngIf="!inv.editing || inv.isEgreso" class="badge-status" [attr.data-status]="inv.estadoLocal">
+                            {{ inv.estadoLocal || 'Pendiente' }}
+                        </span>
+                    </td>
+                    <td class="actions-cell">
+                        <button class="btn-icon" title="Editar" (click)="toggleEdit(inv)" *ngIf="!inv.isEgreso">
+                            <i class="fa-solid fa-pen-to-square"></i>
+                        </button>
+                        <button class="btn-icon" title="Ver Detalles" (click)="openInvoiceDetail(inv.id)" *ngIf="!inv.isEgreso">
+                            <i class="fa-solid fa-eye"></i>
+                        </button>
+                        <span *ngIf="inv.isEgreso" class="text-muted small">Manual</span>
+                    </td>
+                </tr>
                     <tr *ngIf="invoices.length === 0 && !loading">
-                        <td colspan="8" class="empty-state">
-                            <i class="fa fa-info-circle"></i> No hay facturas registradas en este periodo o no se ha
+                        <td colspan="9" class="empty-state">
+                            <i class="fa-solid fa-circle-info"></i> No hay facturas registradas en este periodo o no se ha
                             sincronizado.
                         </td>
                     </tr>
                 </tbody>
             </table>
         </div>
+    </div>
+</div>
+
+<div class="modal-overlay" *ngIf="showBanksModal">
+    <div class="modal-card bank-modal office-card">
+        <header class="modal-header">
+            <h3>Resumen por Bancos (Conciliado)</h3>
+            <button class="close-btn" (click)="closeBanksModal()">&times;</button>
+        </header>
+        <main class="modal-body">
+            <div class="bank-sections">
+                <div class="bank-section bcp">
+                    <div class="bank-header">
+                        <i class="fa-solid fa-building-columns"></i>
+                        <h4>BCP</h4>
+                    </div>
+                    <div class="bank-value">S/ {{ bankTotals.bcp | number:'1.2-2' }}</div>
+                </div>
+                <div class="bank-section interbank">
+                    <div class="bank-header">
+                        <i class="fa-solid fa-building-columns"></i>
+                        <h4>INTERBANK</h4>
+                    </div>
+                    <div class="bank-value">S/ {{ bankTotals.interbank | number:'1.2-2' }}</div>
+                </div>
+                <div class="bank-section caja">
+                    <div class="bank-header">
+                        <i class="fa-solid fa-wallet"></i>
+                        <h4>CAJA VIRTUAL / IZIPAY</h4>
+                    </div>
+                    <div class="bank-value">S/ {{ bankTotals.cajaVirtual | number:'1.2-2' }}</div>
+                </div>
+            </div>
+            <p class="modal-note">* Este saldo incluye Ingresos - Gastos únicamente de transacciones Conciliadas o Pagadas.</p>
+        </main>
     </div>
 </div>
 

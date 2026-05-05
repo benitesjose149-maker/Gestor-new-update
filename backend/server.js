@@ -15,8 +15,9 @@ import demoRoutes from './routes/endpoint-demo-test.js';
 const app = express();
 app.set('trust proxy', true);
 
-const pendingCommands = new Map(); // SN -> Array of strings (Queue)
-const biometricUsersCache = new Map(); // PIN -> Name
+const pendingCommands = new Map();
+const biometricUsersCache = new Map();
+const knownDeviceSNs = new Set();
 
 
 
@@ -913,6 +914,12 @@ app.post('/api/empleados', async (req, res) => {
 
         const result = await request.query(query);
         const saved = result.recordset[0];
+
+        // Sincronizar automáticamente con la máquina biométrica si tiene ID biométrico
+        if (saved.BIOMETRIC_ID) {
+            pushUserToDevice(saved.BIOMETRIC_ID, saved.NOMBRE, saved.APELLIDOS);
+        }
+
         res.status(201).json({
             _id: saved.ID_EMPLOYEE,
             ...saved
@@ -972,6 +979,12 @@ app.put('/api/empleados/:id', async (req, res) => {
                 BIOMETRIC_ID = @biometricId, ENTRY_TIME = @entryTime, EXIT_TIME = @exitTime
             WHERE ID_EMPLOYEE = @id
         `);
+
+        // Sincronizar con la máquina biométrica si tiene ID biométrico
+        if (data.biometricId) {
+            pushUserToDevice(data.biometricId, data.nombre, data.apellidos);
+        }
+
         res.json({ message: 'Empleado actualizado correctamente' });
     } catch (error) {
         res.status(500).json({ error: 'Error al actualizar empleado' });
@@ -996,7 +1009,7 @@ app.get('/api/planilla-borrador', async (req, res) => {
                    ISNULL(pb.FALTAS_DIAS, 0) as FALTAS_DIAS,
                    ISNULL(pb.FALTAS_HORAS, 0) as FALTAS_HORAS,
                    ISNULL(pb.DESCUENTO_ADICIONAL, 0) as DESCUENTO_ADICIONAL,
-                   pb.DESCUENTOS_JSON,
+                   pb.DESCUENTOS_JSON, n 
                    pb.BONOS_JSON,
                    pb.OBSERVACIONES as BORRADOR_OBSERVACIONES,
                    (SELECT ISNULL(SUM(Monto), 0) FROM ADVANCES 
@@ -1010,22 +1023,58 @@ app.get('/api/planilla-borrador', async (req, res) => {
                      WHERE NombreEmpleado = (e.NOMBRE + ' ' + e.APELLIDOS) 
                      AND Tipo = 'PRESTAMO' AND (Mes = @mes OR Mes = @queryMes) AND (Anio = @anio OR Anio IS NULL)
                      ORDER BY CreatedAt DESC) as CUOTA_DETALLE,
-                   ISNULL(pb.ESTADO, 'PENDIENTE') as ESTADO
+                   ISNULL(pb.ESTADO, 'PENDIENTE') as ESTADO,
+                   pb.ULTIMA_MODIFICACION
             FROM EMPLOYEES e
             LEFT JOIN PLANILLA_BORRADOR pb ON e.ID_EMPLOYEE = pb.ID_EMPLOYEE
             WHERE e.ACTIVO = 1 OR e.ACTIVO IS NULL
         `);
 
         const empleados = result.recordset.map(emp => {
+            const now = new Date();
+            const currentMonthIdx = now.getMonth();
+            const currentYear = now.getFullYear();
+
+            const pbDate = emp.ULTIMA_MODIFICACION ? new Date(emp.ULTIMA_MODIFICACION) : null;
+            const isOldMonth = pbDate && (pbDate.getMonth() !== currentMonthIdx || pbDate.getFullYear() !== currentYear);
+
             let descuentosAdicionales = [];
             try {
-                if (emp.DESCUENTOS_JSON) descuentosAdicionales = JSON.parse(emp.DESCUENTOS_JSON);
+                if (emp.DESCUENTOS_JSON) {
+                    descuentosAdicionales = JSON.parse(emp.DESCUENTOS_JSON);
+                    if (isOldMonth) {
+                        descuentosAdicionales = descuentosAdicionales.filter(d => {
+                            if (!d.fecha) return false;
+                            const dd = new Date(d.fecha);
+                            return dd.getMonth() === currentMonthIdx && dd.getFullYear() === currentYear;
+                        });
+                    }
+                }
             } catch (e) { }
 
             let bonosDetalle = [];
             try {
-                if (emp.BONOS_JSON) bonosDetalle = JSON.parse(emp.BONOS_JSON);
+                if (emp.BONOS_JSON) {
+                    bonosDetalle = JSON.parse(emp.BONOS_JSON);
+                    if (isOldMonth) {
+                        bonosDetalle = bonosDetalle.filter(b => {
+                            if (b.permanente) return true;
+                            if (!b.fecha) return false;
+                            const bd = new Date(b.fecha);
+                            return bd.getMonth() === currentMonthIdx && bd.getFullYear() === currentYear;
+                        });
+                    }
+                }
             } catch (e) { }
+
+            const horasExtras = isOldMonth ? 0 : (emp.HORAS_EXTRAS || 0);
+            const faltasDias = isOldMonth ? 0 : (emp.FALTAS_DIAS || 0);
+            const faltasHoras = isOldMonth ? 0 : (emp.FALTAS_HORAS || 0);
+            const descuentoAdicional = isOldMonth
+                ? descuentosAdicionales.reduce((sum, d) => sum + (Number(d.monto) || 0), 0)
+                : (emp.DESCUENTO_ADICIONAL || 0);
+            const estado = isOldMonth ? 'PENDIENTE' : (emp.ESTADO || 'PENDIENTE');
+            const observaciones = isOldMonth ? '' : (emp.BORRADOR_OBSERVACIONES || '');
 
             return {
                 _id: emp.ID_EMPLOYEE,
@@ -1037,17 +1086,18 @@ app.get('/api/planilla-borrador', async (req, res) => {
                 regimenPensionario: emp.ENTIDAD_PREVISIONAL,
                 sueldo: emp.SUELDO_BASE,
                 calculoAfpMinimo: !!emp.DESCUENTO_AFP_MINIMO,
-                estado: 'Activo',
+                estado: 'Activo', // Estado de contrato
                 adelanto: emp.TOTAL_ADELANTO || 0,
                 prestamo: emp.TOTAL_PRESTAMO || 0,
-                faltasDias: emp.FALTAS_DIAS,
-                faltasHoras: emp.FALTAS_HORAS,
-                descuentoAdicional: emp.DESCUENTO_ADICIONAL,
+                faltasDias: faltasDias,
+                faltasHoras: faltasHoras,
+                horasExtras: horasExtras,
+                descuentoAdicional: descuentoAdicional,
                 descuentosAdicionales: descuentosAdicionales,
                 bonosDetalle: bonosDetalle,
                 cuotaDetalle: emp.CUOTA_DETALLE || '',
-                estado: emp.ESTADO || 'PENDIENTE',
-                observaciones: emp.BORRADOR_OBSERVACIONES || ''
+                planillaEstado: estado,
+                observaciones: observaciones
             };
         });
         res.json(empleados);
@@ -1787,10 +1837,10 @@ function mapBankToDebitAccount(bank) {
     return '1031';
 }
 
-export async function syncWhmcsInvoices() {
+export async function syncWhmcsInvoices(targetMonth = null, targetYear = null) {
     const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth();
+    const currentYear = targetYear || now.getFullYear();
+    const currentMonth = targetMonth !== null ? (targetMonth - 1) : now.getMonth();
 
     try {
         const targetMonthStr = `${currentYear}-${(currentMonth + 1).toString().padStart(2, '0')}`;
@@ -1984,9 +2034,9 @@ app.get('/api/whmcs/invoices', async (req, res) => {
         const currentYear = parseInt(req.query.anio) || now.getFullYear();
 
         if (forceSync) {
-            await syncWhmcsInvoices();
+            await syncWhmcsInvoices(currentMonth, currentYear);
         } else if (!lastSyncTime || (Date.now() - lastSyncTime > SYNC_COOLDOWN)) {
-            syncWhmcsInvoices().catch(err => err);
+            syncWhmcsInvoices(currentMonth, currentYear).catch(err => err);
         }
 
         const page = parseInt(req.query.page) || 1;
@@ -2008,8 +2058,7 @@ app.get('/api/whmcs/invoices', async (req, res) => {
                     SUM(CASE WHEN CuentaDebito = 'INTERBANK' AND MONTH(Fecha) = @month AND YEAR(Fecha) = @year THEN ISNULL(MontoBruto, 0) ELSE 0 END) as totalInterbank,
                     SUM(CASE WHEN MONTH(Fecha) = @month AND YEAR(Fecha) = @year THEN ISNULL(Comision, 0) ELSE 0 END) as totalComisiones
                 FROM FINANCE_INVOICES 
-                WHERE ( (MONTH(Fecha) = @month AND YEAR(Fecha) = @year) 
-                        OR (MONTH(UpdatedAt) = @month AND YEAR(UpdatedAt) = @year) )
+                WHERE (MONTH(Fecha) = @month AND YEAR(Fecha) = @year)
                 AND EstadoLocal IN ('Conciliado', 'Pendiente', 'Pagado')
             `);
 
@@ -2028,8 +2077,7 @@ app.get('/api/whmcs/invoices', async (req, res) => {
             .input('limit', mssql.Int, limit)
             .query(`
                 SELECT * FROM FINANCE_INVOICES 
-                WHERE ( (MONTH(Fecha) = @month AND YEAR(Fecha) = @year) 
-                        OR (MONTH(UpdatedAt) = @month AND YEAR(UpdatedAt) = @year) )
+                WHERE (MONTH(Fecha) = @month AND YEAR(Fecha) = @year)
                 AND EstadoLocal IN ('Conciliado', 'Pendiente', 'Pagado')
                 ORDER BY Fecha DESC
                 OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
@@ -2059,8 +2107,9 @@ app.get('/api/whmcs/invoices', async (req, res) => {
             const m = (inv.moneda || '').toString().toUpperCase();
             return m === 'PEN' || m === '1' || m === '' || m === 'SOLES' || m.includes('S/');
         });
-        const thisMonthPaid = cachedThisMonthPaid;
-        const thisMonthTotalGross = cachedThisMonthTotalGross > 0
+        const isCurrentPeriod = currentMonth === (now.getMonth() + 1) && currentYear === now.getFullYear();
+        const thisMonthPaid = isCurrentPeriod ? cachedThisMonthPaid : dbTotalGross;
+        const thisMonthTotalGross = (isCurrentPeriod && cachedThisMonthTotalGross > 0)
             ? cachedThisMonthTotalGross
             : dbTotalGross;
 
@@ -2793,6 +2842,11 @@ app.get('/iclock/getrequest', (req, res) => {
     res.setHeader('Content-Type', 'text/plain');
 
     if (SN) {
+        // Registrar el dispositivo si es la primera vez que conecta
+        if (!knownDeviceSNs.has(SN)) {
+            knownDeviceSNs.add(SN);
+            console.log(`[ADMS] 📡 Dispositivo registrado: SN=${SN}. Total dispositivos: ${knownDeviceSNs.size}`);
+        }
         if (!pendingCommands.has(SN)) {
             console.log(`[ADMS] 📡 Primera poll detectada de SN: ${SN}. Iniciando sync...`);
             pendingCommands.set(SN, ['DATA QUERY ATTLOG', 'DATA QUERY USERINFO', 'DATA QUERY USER', 'DATA QUERY USERDATA', 'DATA QUERY PIN2NAME']);
@@ -2818,6 +2872,102 @@ app.get('/api/attendance/force-biometric-sync', (req, res) => {
     pendingCommands.set(SN, ['DATA QUERY ATTLOG', 'DATA QUERY USERINFO', 'DATA QUERY USER', 'DATA QUERY USERDATA', 'DATA QUERY PIN2NAME']);
 
     res.json({ message: `Sincronización encolada para ${SN}. El equipo la recibirá en su próxima consulta.` });
+});
+
+// ─── ZKTeco: Ver dispositivos conectados ───────────────────────────────────
+app.get('/api/zkteco/devices', (req, res) => {
+    const devices = Array.from(knownDeviceSNs).map(sn => ({
+        sn,
+        pendingCommands: (pendingCommands.get(sn) || []).length
+    }));
+    res.json({ total: devices.length, devices });
+});
+
+// ─── ZKTeco: Función para encolar envío de usuario a la máquina ────────────
+function pushUserToDevice(biometricId, nombre, apellidos) {
+    if (!biometricId) return 0;
+    const fullName = `${nombre || ''} ${apellidos || ''}`.trim().substring(0, 24); // ZKTeco max 24 chars
+    // Formato ADMS: campos separados por TAB
+    const cmd = `DATA UPDATE USERINFO PIN=${biometricId}\tName=${fullName}\tPrivilege=0\tPassword=\tEnabled=1\tCardNo=0\tGroup=1\tTimeZone=0\tVerify=0`;
+    let pushed = 0;
+    if (knownDeviceSNs.size === 0) {
+        console.log(`[ZKTeco] ⚠️ No hay dispositivos conectados. El usuario PIN=${biometricId} se enviará cuando la máquina se conecte.`);
+    }
+    for (const sn of knownDeviceSNs) {
+        if (!pendingCommands.has(sn)) pendingCommands.set(sn, []);
+        pendingCommands.get(sn).push(cmd);
+        console.log(`[ZKTeco] ✅ Encolado usuario PIN=${biometricId} (${fullName}) para dispositivo SN=${sn}`);
+        pushed++;
+    }
+    return pushed;
+}
+
+// ─── ZKTeco: Endpoint manual para enviar un empleado a la máquina ──────────
+app.post('/api/zkteco/push-user', async (req, res) => {
+    try {
+        const { biometricId, nombre, apellidos, employeeId } = req.body;
+
+        let finalBiometricId = biometricId;
+        let finalNombre = nombre;
+        let finalApellidos = apellidos;
+
+        // Si se pasa employeeId, buscar los datos del empleado en la DB
+        if (employeeId && !biometricId) {
+            const pool = await poolPlanilla;
+            const empRes = await pool.request()
+                .input('id', mssql.Int, employeeId)
+                .query('SELECT BIOMETRIC_ID, NOMBRE, APELLIDOS FROM EMPLOYEES WHERE ID_EMPLOYEE = @id');
+            if (empRes.recordset.length === 0) {
+                return res.status(404).json({ error: 'Empleado no encontrado' });
+            }
+            const emp = empRes.recordset[0];
+            finalBiometricId = emp.BIOMETRIC_ID;
+            finalNombre = emp.NOMBRE;
+            finalApellidos = emp.APELLIDOS;
+        }
+
+        if (!finalBiometricId) {
+            return res.status(400).json({ error: 'Se requiere biometricId o employeeId con BIOMETRIC_ID asignado' });
+        }
+
+        const pushed = pushUserToDevice(finalBiometricId, finalNombre, finalApellidos);
+        const fullName = `${finalNombre || ''} ${finalApellidos || ''}`.trim();
+
+        res.json({
+            success: true,
+            message: pushed > 0
+                ? `Usuario ${fullName} (PIN=${finalBiometricId}) encolado para ${pushed} dispositivo(s). Se sincronizará en la próxima consulta de la máquina (~30 seg).`
+                : `Usuario ${fullName} (PIN=${finalBiometricId}) guardado. Cuando la máquina se conecte, recibirá el usuario automáticamente.`,
+            devicesQueued: pushed,
+            devicesConnected: knownDeviceSNs.size
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Error al encolar usuario', details: error.message });
+    }
+});
+
+// ─── ZKTeco: Sincronizar TODOS los empleados activos a la máquina ──────────
+app.post('/api/zkteco/sync-all-employees', async (req, res) => {
+    try {
+        const pool = await poolPlanilla;
+        const empRes = await pool.request().query(
+            'SELECT BIOMETRIC_ID, NOMBRE, APELLIDOS FROM EMPLOYEES WHERE ACTIVO = 1 AND BIOMETRIC_ID IS NOT NULL'
+        );
+        const employees = empRes.recordset;
+        let pushed = 0;
+        for (const emp of employees) {
+            pushUserToDevice(emp.BIOMETRIC_ID, emp.NOMBRE, emp.APELLIDOS);
+            pushed++;
+        }
+        res.json({
+            success: true,
+            message: `${pushed} empleados encolados para ${knownDeviceSNs.size} dispositivo(s).`,
+            employeesSynced: pushed,
+            devicesConnected: knownDeviceSNs.size
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Error al sincronizar empleados', details: error.message });
+    }
 });
 
 app.get('/api/attendance/debug-biometric-users', (req, res) => {

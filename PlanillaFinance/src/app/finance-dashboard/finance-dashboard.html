@@ -7,6 +7,14 @@
             </div>
         </div>
         <div class="header-actions">
+            <div class="period-selectors">
+                <select class="form-select" [(ngModel)]="selectedMonth" (change)="loadAll()">
+                    <option *ngFor="let m of months" [value]="m.id">{{ m.name }}</option>
+                </select>
+                <select class="form-select" [(ngModel)]="selectedYear" (change)="loadAll()">
+                    <option *ngFor="let y of years" [value]="y">{{ y }}</option>
+                </select>
+            </div>
             <button class="btn-primary" (click)="abrirNuevoModal()">
                 + Nuevo Egreso
             </button>

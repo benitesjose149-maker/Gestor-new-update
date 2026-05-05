@@ -63,7 +63,7 @@ export class PlanillaComponent implements OnInit {
     constructor(
         private notification: NotificationService,
         private audit: AuditService
-    ) {}
+    ) { }
 
     ngOnInit() {
         this.currentMonth = new Date().toLocaleString('es-ES', { month: 'long' });
@@ -108,7 +108,8 @@ export class PlanillaComponent implements OnInit {
                     descuentoAdicional: emp.descuentoAdicional || 0,
                     descuentosAdicionales: emp.descuentosAdicionales || [],
                     observaciones: emp.observaciones || '',
-                    montoAsignacionFamiliar: emp.asignacionFamiliar ? 102.50 : 0
+                    montoAsignacionFamiliar: emp.asignacionFamiliar ? 102.50 : 0,
+                    estado: emp.planillaEstado || 'PENDIENTE'
                 };
             });
 
@@ -408,6 +409,7 @@ export class PlanillaComponent implements OnInit {
             emp.descuentoAdicional = 0;
             (emp as any).descuentosAdicionales = [];
             emp.observaciones = '';
+            emp.estado = 'PENDIENTE';
 
             // Keep only permanent bonuses, remove single-month ones
             const permanentBonos = (emp.bonosDetalle || []).filter((b: any) => b.permanente === true);
@@ -542,12 +544,25 @@ export class PlanillaComponent implements OnInit {
     };
 
     openBonoModal(emp: PayrollEmployee) {
+        const monthNames = [
+            'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+            'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'
+        ];
+        const currentMonthIndex = monthNames.findIndex(m => m === this.currentMonth.toLowerCase());
+
+        const itemsFiltrados = (emp.bonosDetalle || []).filter((b: any) => {
+            if (b.permanente) return true;
+            if (!b.fecha) return false;
+            const bd = new Date(b.fecha);
+            return bd.getMonth() === currentMonthIndex && bd.getFullYear() === this.currentYear;
+        });
+
         this.bonoDetail = {
             empId: emp._id,
             empName: `${emp.nombre} ${emp.apellidos}`,
             cargo: emp.cargo,
             sueldo: emp.sueldo,
-            items: emp.bonosDetalle ? [...emp.bonosDetalle] : [],
+            items: itemsFiltrados,
             newItem: {
                 motivo: '',
                 fecha: new Date().toISOString().split('T')[0],
@@ -577,22 +592,22 @@ export class PlanillaComponent implements OnInit {
     saveBonos() {
         const emp = this.employees.find(e => e._id === this.bonoDetail.empId);
         if (emp) {
-            emp.bonosDetalle = this.bonoDetail.items;
-
             const monthNames = [
                 'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
                 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'
             ];
             const currentMonthIndex = monthNames.findIndex(m => m === this.currentMonth.toLowerCase());
 
-            const validBonos = emp.bonosDetalle.filter((b: any) => {
+            // Al guardar: solo conservar bonos permanentes + del mes actual (limpiar meses anteriores del borrador)
+            const bonosLimpios = this.bonoDetail.items.filter((b: any) => {
                 if (b.permanente) return true;
                 if (!b.fecha) return false;
                 const bd = new Date(b.fecha);
                 return bd.getMonth() === currentMonthIndex && bd.getFullYear() === this.currentYear;
             });
 
-            emp.bonos = validBonos.reduce((sum: number, b: any) => sum + (b.monto || 0), 0);
+            emp.bonosDetalle = bonosLimpios;
+            emp.bonos = bonosLimpios.reduce((sum: number, b: any) => sum + (b.monto || 0), 0);
 
             this.audit.log(`Actualizó bonos para: ${emp.nombre} ${emp.apellidos}`, 'Planilla', `Nuevo total: S/ ${emp.bonos}`);
             this.calculateEmployee(emp, true);

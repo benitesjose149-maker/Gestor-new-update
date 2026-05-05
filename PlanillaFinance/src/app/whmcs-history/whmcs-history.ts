@@ -31,11 +31,22 @@ export class WhmcsHistoryComponent implements OnInit {
 
     totalGross: number = 0;
     totalFees: number = 0;
+    totalEgresos: number = 0;
     totalNet: number = 0;
+
+    showBanksModal: boolean = false;
+    bankTotals = { bcp: 0, interbank: 0, cajaVirtual: 0 };
 
     showInvoiceModal: boolean = false;
     invoiceDetail: any = null;
     loadingInvoice: boolean = false;
+
+    transactionStatuses = [
+        { id: 1, name: 'Pendiente' },
+        { id: 2, name: 'Conciliado' },
+        { id: 3, name: 'Pagado' },
+        { id: 4, name: 'No Conciliado' }
+    ];
 
     constructor(
         private cdr: ChangeDetectorRef,
@@ -67,20 +78,48 @@ export class WhmcsHistoryComponent implements OnInit {
         if (forceSync) this.syncing = true;
 
         try {
-            const url = `${API_URL}/api/whmcs/invoices?mes=${this.selectedMonth}&anio=${this.selectedYear}&limit=1000${forceSync ? '&sync=true' : ''}`;
-            const res = await fetch(url, { headers: getAuthHeaders() });
+            const currentMonth = this.selectedMonth;
+            const currentYear = this.selectedYear;
 
-            if (res.ok) {
-                const data = await res.json();
-                this.invoices = data.invoices || [];
-                this.calculateTotals();
+            // Llamamos a ambos endpoints en paralelo
+            const [invoicesRes, egresosRes] = await Promise.all([
+                fetch(`${API_URL}/api/whmcs/invoices?mes=${currentMonth}&anio=${currentYear}&limit=1000${forceSync ? '&sync=true' : ''}`, { headers: getAuthHeaders() }),
+                fetch(`${API_URL}/api/finance/egresos?mes=${currentMonth}&anio=${currentYear}`, { headers: getAuthHeaders() })
+            ]);
 
-                if (forceSync) {
-                    this.notification.success(`Sincronización de ${this.getMonthName(this.selectedMonth)} completada.`);
-                    this.audit.log(`Sincronizó historial WHMCS: ${this.selectedMonth}/${this.selectedYear}`, 'Finanzas');
-                }
-            } else {
-                this.notification.error('Error al cargar el historial.');
+            let mergedItems: any[] = [];
+
+            if (invoicesRes.ok) {
+                const data = await invoicesRes.json();
+                const mappedInvoices = (data.invoices || []).map((inv: any) => ({
+                    ...inv,
+                    isEgreso: false,
+                    sortDate: inv.fecha ? new Date(inv.fecha).getTime() : 0
+                }));
+                mergedItems = [...mergedItems, ...mappedInvoices];
+            }
+
+            if (egresosRes.ok) {
+                const data = await egresosRes.json();
+                const mappedEgresos = (data.egresos || []).map((eg: any) => ({
+                    ...eg,
+                    isEgreso: true,
+                    montoBruto: eg.monto,
+                    depositoSalida: eg.monto,
+                    numFactura: 'EGRESO',
+                    clienteConcepto: eg.comercio,
+                    sortDate: eg.fecha ? new Date(eg.fecha).getTime() : 0
+                }));
+                mergedItems = [...mergedItems, ...mappedEgresos];
+            }
+
+            // Ordenamos por fecha descendente
+            this.invoices = mergedItems.sort((a, b) => b.sortDate - a.sortDate);
+            this.calculateTotals();
+
+            if (forceSync) {
+                this.notification.success(`Sincronización de ${this.getMonthName(this.selectedMonth)} completada.`);
+                this.audit.log(`Sincronizó historial WHMCS: ${this.selectedMonth}/${this.selectedYear}`, 'Finanzas');
             }
         } catch (error) {
             console.error('Error loading WHMCS history:', error);
@@ -135,9 +174,48 @@ export class WhmcsHistoryComponent implements OnInit {
     }
 
     calculateTotals() {
-        this.totalGross = this.invoices.reduce((sum, inv) => sum + (Number(inv.montoBruto) || 0), 0);
-        this.totalFees = this.invoices.reduce((sum, inv) => sum + (Number(inv.comision) || 0), 0);
-        this.totalNet = this.invoices.reduce((sum, inv) => sum + (Number(inv.montoBruto || 0) - Number(inv.comision || 0)), 0);
+        const isReconciled = (it: any) => it.estadoLocal === 'Conciliado' || it.estadoLocal === 'Pagado';
+
+        // Ingresos solamente
+        this.totalGross = this.invoices
+            .filter(i => !i.isEgreso)
+            .reduce((sum, inv) => sum + (Number(inv.montoBruto) || 0), 0);
+
+        // Comisiones solamente
+        this.totalFees = this.invoices
+            .filter(i => !i.isEgreso)
+            .reduce((sum, inv) => sum + (Number(inv.comision) || 0), 0);
+
+        // Egresos solamente (SOLO CONCILIADOS/PAGADOS)
+        this.totalEgresos = this.invoices
+            .filter(i => i.isEgreso && isReconciled(i))
+            .reduce((sum, inv) => sum + (Number(inv.montoBruto) || 0), 0);
+        
+        // Balance Final (Solo lo real)
+        const incomeNetReconciled = this.invoices
+            .filter(i => !i.isEgreso && isReconciled(i))
+            .reduce((sum, i) => sum + (Number(i.montoBruto || 0) - Number(i.comision || 0)), 0);
+
+        this.totalNet = incomeNetReconciled - this.totalEgresos;
+
+        // Desglose por Banco (Solo Conciliados)
+        this.bankTotals = { bcp: 0, interbank: 0, cajaVirtual: 0 };
+        this.invoices.filter(it => isReconciled(it)).forEach(it => {
+            const b = (it.banco || '').toUpperCase();
+            const monto = it.isEgreso ? -(Number(it.montoBruto) || 0) : (Number(it.montoBruto || 0) - Number(it.comision || 0));
+
+            if (b.includes('BCP')) this.bankTotals.bcp += monto;
+            else if (b.includes('INTERBANK')) this.bankTotals.interbank += monto;
+            else if (b.includes('CAJA VIRTUAL') || b.includes('IZIPAY')) this.bankTotals.cajaVirtual += monto;
+        });
+    }
+
+    openBanksModal() {
+        this.showBanksModal = true;
+    }
+
+    closeBanksModal() {
+        this.showBanksModal = false;
     }
 
     getMonthName(id: number): string {
