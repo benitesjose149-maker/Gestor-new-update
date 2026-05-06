@@ -67,8 +67,15 @@
                             <a class="info-link" (click)="openBonoModal(emp)">Agregar</a>
                         </div>
                     </td>
-                    <td><input type="number" class="input-cell" [(ngModel)]="emp.horasExtras" placeholder="Hrs"
-                            (change)="calculateEmployee(emp)"></td>
+                    <td>
+                        <div style="display: flex; flex-direction: column; align-items: center; gap: 2px;">
+                            <input type="number" class="input-cell" [(ngModel)]="emp.horasExtras" placeholder="Hrs"
+                                (change)="calculateEmployee(emp)">
+                            <span *ngIf="emp.asistenciaSugerida > 0" class="suggested-badge" title="Sugerencia basada en Biométrico">
+                                Bio: {{ floor(emp.asistenciaSugerida) }}h {{ round((emp.asistenciaSugerida % 1) * 60) }}min
+                            </span>
+                        </div>
+                    </td>
                     <td class="text-center">{{emp.montoHorasExtras | number:'1.2-2'}}</td>
 
                     <td><span class="badge"

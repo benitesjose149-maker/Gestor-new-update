@@ -60,6 +60,9 @@ export class PlanillaComponent implements OnInit {
     showDetailModal: boolean = false;
     selectedEmployee: PayrollEmployee | null = null;
 
+    floor = Math.floor;
+    round = Math.round;
+
     constructor(
         private notification: NotificationService,
         private audit: AuditService
@@ -76,6 +79,13 @@ export class PlanillaComponent implements OnInit {
                 headers: getAuthHeaders()
             });
             const data = await empResponse.json();
+
+            // Verificamos si la respuesta es realmente una lista (Array)
+            if (!Array.isArray(data)) {
+                console.warn('La respuesta de la planilla no es una lista:', data);
+                this.employees = [];
+                return;
+            }
 
             // Calculate current month index (0-11)
             const monthNames = [
@@ -106,6 +116,7 @@ export class PlanillaComponent implements OnInit {
                     faltasDias: emp.faltasDias || 0,
                     faltasHoras: emp.faltasHoras || 0,
                     descuentoAdicional: emp.descuentoAdicional || 0,
+                    asistenciaSugerida: emp.asistenciaSugerida || 0,
                     descuentosAdicionales: emp.descuentosAdicionales || [],
                     observaciones: emp.observaciones || '',
                     montoAsignacionFamiliar: emp.asignacionFamiliar ? 102.50 : 0,
@@ -116,6 +127,7 @@ export class PlanillaComponent implements OnInit {
             this.calculateAll();
         } catch (error) {
             console.error('Error loading employees:', error);
+            this.employees = [];
         }
     }
 

@@ -243,16 +243,24 @@ export class AttendanceComponent implements OnInit {
                     const recDate = new Date(record.date);
                     return recDate.getMonth() === currentMonth && recDate.getFullYear() === currentYear;
                 }).map((record: any) => {
-                    if (record.clockIn && record.clockIn !== '-- : --' && record.clockOut && record.clockOut !== '-- : --') {
-                        try {
-                            const inMin = this.convertToMinutes(record.clockIn);
-                            const outMin = this.convertToMinutes(record.clockOut);
+                    // Procesar las horas decimales (ej. 8.52) a formato humano
+                    if (record.totalHours) {
+                        const totalDecimal = parseFloat(record.totalHours.toString().replace('h', ''));
+                        if (!isNaN(totalDecimal)) {
+                            const totalMinutes = Math.round(totalDecimal * 60);
+                            const hours = Math.floor(totalMinutes / 60);
+                            const extraMinutes = totalMinutes % 60;
 
-                            if (outMin - inMin <= 5) {
-                                record.clockOut = '-- : --';
-                                record.totalHours = '0h';
-                            }
-                        } catch (e) { }
+                            // Guardamos los valores separados para el HTML
+                            record.displayHours = `${hours}h`;
+                            record.displayExtra = extraMinutes > 0 ? `${extraMinutes} min` : '--';
+                        } else {
+                            record.displayHours = record.totalHours;
+                            record.displayExtra = '--';
+                        }
+                    } else {
+                        record.displayHours = '0h';
+                        record.displayExtra = '--';
                     }
                     return record;
                 });

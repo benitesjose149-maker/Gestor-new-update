@@ -76,12 +76,18 @@ app.get('/api/dashboard/stats', async (req, res) => {
         const pool = await poolPlanilla;
         const now = new Date();
         const currentMonth = now.getMonth() + 1;
+        const currentYear = now.getFullYear();
 
         const payrollRes = await pool.request()
+            .input('mes', mssql.Int, currentMonth)
+            .input('anio', mssql.Int, currentYear)
             .query(`
                 SELECT e.ID_EMPLOYEE, e.SUELDO_BASE, e.TIPO_TRABAJADOR, 
                        ISNULL(pb.HORAS_EXTRAS, 0) as HORAS_EXTRAS,
-                       pb.BONOS_JSON
+                       pb.BONOS_JSON,
+                       (SELECT ISNULL(SUM(TOTAL_HOURS), 0) FROM ATTENDANCE_DAILY_REPORTS 
+                        WHERE ID_EMPLOYEE = e.ID_EMPLOYEE 
+                        AND MONTH(DATE) = @mes AND YEAR(DATE) = @anio) as ASISTENCIA_TOTAL_HORAS
                 FROM EMPLOYEES e
                 LEFT JOIN PLANILLA_BORRADOR pb ON e.ID_EMPLOYEE = pb.ID_EMPLOYEE
                 WHERE e.ACTIVO = 1 OR e.ACTIVO IS NULL
@@ -1009,7 +1015,7 @@ app.get('/api/planilla-borrador', async (req, res) => {
                    ISNULL(pb.FALTAS_DIAS, 0) as FALTAS_DIAS,
                    ISNULL(pb.FALTAS_HORAS, 0) as FALTAS_HORAS,
                    ISNULL(pb.DESCUENTO_ADICIONAL, 0) as DESCUENTO_ADICIONAL,
-                   pb.DESCUENTOS_JSON, n 
+                   pb.DESCUENTOS_JSON,
                    pb.BONOS_JSON,
                    pb.OBSERVACIONES as BORRADOR_OBSERVACIONES,
                    (SELECT ISNULL(SUM(Monto), 0) FROM ADVANCES 
@@ -1024,7 +1030,10 @@ app.get('/api/planilla-borrador', async (req, res) => {
                      AND Tipo = 'PRESTAMO' AND (Mes = @mes OR Mes = @queryMes) AND (Anio = @anio OR Anio IS NULL)
                      ORDER BY CreatedAt DESC) as CUOTA_DETALLE,
                    ISNULL(pb.ESTADO, 'PENDIENTE') as ESTADO,
-                   pb.ULTIMA_MODIFICACION
+                   pb.ULTIMA_MODIFICACION,
+                   (SELECT ISNULL(SUM(CASE WHEN TOTAL_HOURS > 8 THEN TOTAL_HOURS - 8 ELSE 0 END), 0) FROM ATTENDANCE_DAILY_REPORTS 
+                    WHERE ID_EMPLOYEE = e.ID_EMPLOYEE 
+                    AND MONTH(DATE) = CAST(@mes AS INT) AND YEAR(DATE) = @anio) as ASISTENCIA_HORAS_EXTRA
             FROM EMPLOYEES e
             LEFT JOIN PLANILLA_BORRADOR pb ON e.ID_EMPLOYEE = pb.ID_EMPLOYEE
             WHERE e.ACTIVO = 1 OR e.ACTIVO IS NULL
@@ -1097,7 +1106,8 @@ app.get('/api/planilla-borrador', async (req, res) => {
                 bonosDetalle: bonosDetalle,
                 cuotaDetalle: emp.CUOTA_DETALLE || '',
                 planillaEstado: estado,
-                observaciones: observaciones
+                observaciones: observaciones,
+                asistenciaSugerida: emp.ASISTENCIA_HORAS_EXTRA || 0
             };
         });
         res.json(empleados);

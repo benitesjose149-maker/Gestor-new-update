@@ -507,3 +507,13 @@ input[type=number] {
     border: 1px solid #6ee7b7;
 }
 .switch-mini { display: flex; flex-direction: column; align-items: center; gap: 4px; } .switch-mini input[type='checkbox'] { width: 34px; height: 18px; appearance: none; background-color: rgba(0,0,0,0.3); border-radius: 10px; position: relative; cursor: pointer; border: 1px solid rgba(255,255,255,0.2); } .switch-mini input[type='checkbox']:checked { background-color: #10b981; } .switch-mini input[type='checkbox']::before { content: ''; position: absolute; width: 14px; height: 14px; background: white; border-radius: 50%; top: 1px; left: 1px; transition: 0.2s; } .switch-mini input[type='checkbox']:checked::before { left: 17px; }
+.suggested-badge {
+    background-color: #eff6ff;
+    color: #1d4ed8;
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 1px 4px;
+    border-radius: 4px;
+    border: 1px solid #bfdbfe;
+    white-space: nowrap;
+}

@@ -50,7 +50,7 @@ export class WhmcsHistoryComponent implements OnInit {
 
     constructor(
         private cdr: ChangeDetectorRef,
-        private notification: NotificationService,
+        public notification: NotificationService,
         private audit: AuditService
     ) {
         const now = new Date();
@@ -104,6 +104,7 @@ export class WhmcsHistoryComponent implements OnInit {
                 const mappedEgresos = (data.egresos || []).map((eg: any) => ({
                     ...eg,
                     isEgreso: true,
+                    localId: eg.localId || eg._id || eg.id, // Aseguramos que tenga ID para guardar
                     montoBruto: eg.monto,
                     depositoSalida: eg.monto,
                     numFactura: 'EGRESO',
@@ -190,7 +191,7 @@ export class WhmcsHistoryComponent implements OnInit {
         this.totalEgresos = this.invoices
             .filter(i => i.isEgreso && isReconciled(i))
             .reduce((sum, inv) => sum + (Number(inv.montoBruto) || 0), 0);
-        
+
         // Balance Final (Solo lo real)
         const incomeNetReconciled = this.invoices
             .filter(i => !i.isEgreso && isReconciled(i))

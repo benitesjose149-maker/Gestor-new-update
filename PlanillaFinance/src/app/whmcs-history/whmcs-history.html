@@ -12,10 +12,10 @@
                 <option *ngFor="let y of years" [value]="y">{{ y }}</option>
             </select>
             <button class="btn btn-primary" (click)="loadHistory()" [disabled]="loading">
-                <i class="fa-solid fa-magnifying-glass"></i> Consultar
+                {{ loading ? 'Cargando...' : 'CONSULTAR' }}
             </button>
             <button class="btn btn-success" (click)="loadHistory(true)" [disabled]="syncing">
-                <i class="fa-solid fa-rotate" [class.fa-spin]="syncing"></i> Sincronizar Periodo
+                {{ syncing ? 'SINCRONIZANDO...' : 'SINCRONIZAR PERIODO' }}
             </button>
         </div>
     </header>
@@ -99,21 +99,22 @@
                         <small class="text-muted" *ngIf="inv.tipoMovimiento">{{ inv.tipoMovimiento }}</small>
                     </td>
                     <td>
-                        <select *ngIf="inv.editing && !inv.isEgreso" class="cell-select" [(ngModel)]="inv.estadoLocal" (change)="onFieldChange(inv)">
+                        <select *ngIf="inv.editing" class="cell-select" [(ngModel)]="inv.estadoLocal" (change)="onFieldChange(inv)">
                             <option *ngFor="let st of transactionStatuses" [value]="st.name">{{ st.name }}</option>
                         </select>
-                        <span *ngIf="!inv.editing || inv.isEgreso" class="badge-status" [attr.data-status]="inv.estadoLocal">
+                        <span *ngIf="!inv.editing" class="badge-status" [attr.data-status]="inv.estadoLocal">
                             {{ inv.estadoLocal || 'Pendiente' }}
                         </span>
                     </td>
                     <td class="actions-cell">
-                        <button class="btn-icon" title="Editar" (click)="toggleEdit(inv)" *ngIf="!inv.isEgreso">
-                            <i class="fa-solid fa-pen-to-square"></i>
-                        </button>
-                        <button class="btn-icon" title="Ver Detalles" (click)="openInvoiceDetail(inv.id)" *ngIf="!inv.isEgreso">
-                            <i class="fa-solid fa-eye"></i>
-                        </button>
-                        <span *ngIf="inv.isEgreso" class="text-muted small">Manual</span>
+                        <div class="action-buttons">
+                            <button class="btn-text edit" title="Editar" (click)="toggleEdit(inv)">
+                                {{ inv.editing ? 'GUARDAR' : 'EDITAR' }}
+                            </button>
+                            <button class="btn-text view" title="Ver Detalles" (click)="inv.isEgreso ? notification.info('Detalle de Egreso: ' + inv.comercio) : openInvoiceDetail(inv.id)">
+                                VER
+                            </button>
+                        </div>
                     </td>
                 </tr>
                     <tr *ngIf="invoices.length === 0 && !loading">

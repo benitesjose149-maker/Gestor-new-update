@@ -328,6 +328,37 @@
 .btn-secondary { background: #94a3b8; color: white; }
 .btn-secondary:hover { background: #64748b; }
 
+.action-buttons {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+}
+
+.btn-text {
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: #475569;
+}
+
+.btn-text:hover {
+    background: #e2e8f0;
+}
+
+.btn-text.edit {
+    color: #2563eb;
+    border-color: #bfdbfe;
+}
+
+.btn-text.view {
+    color: #64748b;
+}
+
 .btn-icon {
     background: #f1f5f9;
     border: 1px solid #cbd5e1;

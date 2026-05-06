@@ -150,7 +150,8 @@
                             <th>Fecha</th>
                             <th>Entrada</th>
                             <th>Salida</th>
-                            <th>Total Horas</th>
+                            <th>Base</th>
+                            <th>Extra / Demás</th>
                             <th>Estado</th>
                         </tr>
                     </thead>
@@ -163,7 +164,12 @@
                             </td>
                             <td>{{ record.clockIn }}</td>
                             <td>{{ record.clockOut }}</td>
-                            <td><strong>{{ record.totalHours }}</strong></td>
+                            <td><strong>{{ record.displayHours }}</strong></td>
+                            <td>
+                                <span [class.text-success]="record.displayExtra !== '--'">
+                                    {{ record.displayExtra }}
+                                </span>
+                            </td>
                             <td>
                                 <span class="status-badge" [class.badge-success]="record.status === 'Puntual'"
                                     [class.badge-warning]="record.status === 'Tarde'"
