@@ -3005,7 +3005,7 @@ app.get('/api/attendance/history/:idEmployee', async (req, res) => {
         const result = await pool.request()
             .input('idEmp', mssql.Int, idEmployee)
             .query(`
-                SELECT * FROM ATTENDANCE_DAILY_REPORTS 
+                SELECT *, ISNULL(OBSERVATIONS, '') as OBSERVATIONS FROM ATTENDANCE_DAILY_REPORTS 
                 WHERE ID_EMPLOYEE = @idEmp 
                 ORDER BY DATE DESC
             `);
@@ -3022,11 +3022,34 @@ app.get('/api/attendance/history/:idEmployee', async (req, res) => {
                 clockIn: formatTime(row.FIRST_ENTRY),
                 clockOut: formatTime(row.LAST_EXIT),
                 totalHours: `${row.TOTAL_HOURS}h`,
-                status: row.STATUS
+                status: row.STATUS,
+                observations: row.OBSERVATIONS
             };
         });
 
         res.json(history);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/attendance/observation', async (req, res) => {
+    try {
+        const { employeeId, date, observation } = req.body;
+        const pool = await poolPlanilla;
+
+        await pool.request()
+            .input('empId', mssql.Int, employeeId)
+            .input('date', mssql.Date, date)
+            .input('obs', mssql.NVarChar(mssql.MAX), observation)
+            .query(`
+                IF EXISTS (SELECT 1 FROM ATTENDANCE_DAILY_REPORTS WHERE ID_EMPLOYEE = @empId AND DATE = @date)
+                    UPDATE ATTENDANCE_DAILY_REPORTS SET OBSERVATIONS = @obs WHERE ID_EMPLOYEE = @empId AND DATE = @date
+                ELSE
+                    INSERT INTO ATTENDANCE_DAILY_REPORTS (ID_EMPLOYEE, DATE, OBSERVATIONS) VALUES (@empId, @date, @obs)
+            `);
+
+        res.json({ success: true, message: 'Observación guardada correctamente' });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

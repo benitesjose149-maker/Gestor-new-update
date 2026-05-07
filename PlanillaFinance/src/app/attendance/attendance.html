@@ -55,7 +55,8 @@
                 </tr>
             </thead>
             <tbody>
-                <tr *ngFor="let emp of displayedData" class="attendance-row" [class.row-absent]="emp.status === 'Falta' && emp.clockIn === '-- : --'">
+                <tr *ngFor="let emp of displayedData" class="attendance-row"
+                    [class.row-absent]="emp.status === 'Falta' && emp.clockIn === '-- : --'">
                     <td>
                         <div class="emp-profile-wrapper interactive-name" (click)="openEmployeeModal(emp)"
                             style="display: flex; align-items: center; gap: 1rem; cursor: pointer; transition: all 0.2s;">
@@ -150,8 +151,7 @@
                             <th>Fecha</th>
                             <th>Entrada</th>
                             <th>Salida</th>
-                            <th>Base</th>
-                            <th>Extra / Demás</th>
+                            <th>Total Horas</th>
                             <th>Estado</th>
                         </tr>
                     </thead>
@@ -164,12 +164,7 @@
                             </td>
                             <td>{{ record.clockIn }}</td>
                             <td>{{ record.clockOut }}</td>
-                            <td><strong>{{ record.displayHours }}</strong></td>
-                            <td>
-                                <span [class.text-success]="record.displayExtra !== '--'">
-                                    {{ record.displayExtra }}
-                                </span>
-                            </td>
+                            <td><strong>{{ record.totalHours }}</strong></td>
                             <td>
                                 <span class="status-badge" [class.badge-success]="record.status === 'Puntual'"
                                     [class.badge-warning]="record.status === 'Tarde'"
