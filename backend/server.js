@@ -650,7 +650,80 @@ app.post('/api/admin/create-user', async (req, res) => {
                 VALUES (@email, @pass, @name, @role, @p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9)
             `);
 
-        res.json({ success: true, message: 'Usuario creado correctamente' });
+        // Enviar correo de bienvenida
+        try {
+            const { getGmailClient } = await import('./integrations/gmailClient.js');
+            const gmail = getGmailClient();
+            
+            const permsList = [
+                permissions.dashboard ? '✔ Panel Principal' : '',
+                permissions.empleados ? '✔ Empleados' : '',
+                permissions.archivados ? '✔ Archivados' : '',
+                permissions.planilla ? '✔ Planilla' : '',
+                permissions.pagos ? '✔ Pagos' : '',
+                permissions.vacaciones ? '✔ Vacaciones' : '',
+                permissions.movimientos ? '✔ Movimientos' : '',
+                permissions.asistencia ? '✔ Asistencia' : '',
+                permissions.finanzas ? '✔ Finanzas' : '',
+                permissions.historial ? '✔ Historial' : ''
+            ].filter(Boolean).join('<br/>');
+
+            const emailHtml = `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+                <div style="background-color: #3b82f6; padding: 20px; text-align: center;">
+                    <h1 style="color: white; margin: 0; font-size: 24px;">¡Bienvenido al Sistema!</h1>
+                </div>
+                <div style="padding: 30px; background-color: #ffffff;">
+                    <p style="font-size: 16px; color: #334155;">Hola <strong>${full_name}</strong>,</p>
+                    <p style="font-size: 16px; color: #334155;">Se ha creado una cuenta administrativa para ti. A continuación, tus credenciales de acceso seguro:</p>
+                    
+                    <div style="background-color: #f8fafc; border-left: 4px solid #3b82f6; padding: 15px; margin: 20px 0;">
+                        <p style="margin: 0 0 10px 0; font-size: 15px;"><strong>Usuario/Email:</strong> ${email}</p>
+                        <p style="margin: 0; font-size: 15px;"><strong>Contraseña:</strong> ${password}</p>
+                    </div>
+
+                    <h3 style="color: #0f172a; margin-top: 25px;">Tus accesos habilitados:</h3>
+                    <div style="color: #10b981; font-weight: bold; line-height: 1.6; margin-bottom: 30px;">
+                        ${permsList}
+                    </div>
+
+                    <div style="text-align: center; margin-top: 30px;">
+                        <a href="https://sistema.tuempresa.com" style="background-color: #3b82f6; color: white; padding: 12px 25px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px; display: inline-block;">Ingresar al Sistema</a>
+                    </div>
+                </div>
+                <div style="background-color: #f1f5f9; padding: 15px; text-align: center; font-size: 12px; color: #64748b;">
+                    Este es un correo automático. Por favor, no respondas a este mensaje.<br>
+                    Te recomendamos cambiar tu contraseña luego de tu primer ingreso.
+                </div>
+            </div>`;
+
+            // Construir mensaje en formato RFC 2822
+            const utf8Subject = `=?utf-8?B?${Buffer.from('Bienvenido al Sistema - Tus credenciales de acceso').toString('base64')}?=`;
+            const messageParts = [
+                'Content-Type: text/html; charset="UTF-8"',
+                'MIME-Version: 1.0',
+                `To: ${email}`,
+                'From: "Sistema Administrativo" <me>',
+                `Subject: ${utf8Subject}`,
+                '',
+                emailHtml
+            ];
+            const emailBody = messageParts.join('\r\n');
+            const encodedEmail = Buffer.from(emailBody).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+            await gmail.users.messages.send({
+                userId: 'me',
+                requestBody: {
+                    raw: encodedEmail
+                }
+            });
+            console.log('Correo de bienvenida enviado exitosamente a:', email);
+        } catch (emailErr) {
+            console.error('Error enviando correo de bienvenida:', emailErr);
+            // No detenemos la respuesta, el usuario ya se creó
+        }
+
+        res.json({ success: true, message: 'Usuario creado y correo enviado correctamente' });
     } catch (error) {
         res.status(500).json({ success: false, message: 'Error al crear usuario: ' + error.message });
     }
@@ -921,8 +994,8 @@ app.post('/api/empleados', async (req, res) => {
         const result = await request.query(query);
         const saved = result.recordset[0];
 
-        // Sincronizar automáticamente con la máquina biométrica si tiene ID biométrico
-        if (saved.BIOMETRIC_ID) {
+        // Sincronizar automáticamente con la máquina biométrica si el usuario marcó la casilla
+        if (data.syncToBiometric && saved.BIOMETRIC_ID) {
             pushUserToDevice(saved.BIOMETRIC_ID, saved.NOMBRE, saved.APELLIDOS);
         }
 
@@ -986,8 +1059,8 @@ app.put('/api/empleados/:id', async (req, res) => {
             WHERE ID_EMPLOYEE = @id
         `);
 
-        // Sincronizar con la máquina biométrica si tiene ID biométrico
-        if (data.biometricId) {
+        // Sincronizar con la máquina biométrica si el usuario marcó la casilla
+        if (data.syncToBiometric && data.biometricId) {
             pushUserToDevice(data.biometricId, data.nombre, data.apellidos);
         }
 
@@ -2367,6 +2440,7 @@ app.get('/api/finance/egresos', async (req, res) => {
 
         const egresos = result.recordset.map(e => ({
             id: e.ID,
+            localId: e.ID,
             fecha: e.Fecha,
             monto: e.Monto,
             banco: e.Banco,
@@ -2376,7 +2450,8 @@ app.get('/api/finance/egresos', async (req, res) => {
             referencia: e.Referencia,
             origen: e.Origen,
             observacion: e.Observacion,
-            codigoContable: e.CodigoContable
+            codigoContable: e.CodigoContable,
+            estadoLocal: e.EstadoLocal || 'Pendiente'
         }));
 
         const totalMes = egresos.reduce((sum, e) => sum + (Number(e.monto) || 0), 0);
@@ -2428,11 +2503,12 @@ app.post('/api/finance/egresos/:id/metadata', async (req, res) => {
         request.input('id', mssql.Int, id);
         request.input('banco', mssql.NVarChar(100), data.banco || '');
         request.input('codigo', mssql.NVarChar(100), data.codigoContable || '');
+        request.input('estado', mssql.NVarChar(50), data.estadoLocal || 'Pendiente');
         request.input('now', mssql.DateTime, new Date());
 
         await request.query(`
             UPDATE FINANCE_EGRESOS 
-            SET Banco = @banco, CodigoContable = @codigo, UpdatedAt = @now
+            SET Banco = @banco, CodigoContable = @codigo, EstadoLocal = @estado, UpdatedAt = @now
             WHERE ID = @id
         `);
         res.json({ success: true, message: 'Egreso actualizado' });
@@ -2863,6 +2939,12 @@ app.get('/iclock/getrequest', (req, res) => {
         }
 
         const queue = pendingCommands.get(SN);
+        
+        // Mover globalCommands a la cola del dispositivo
+        while (globalCommands.length > 0) {
+            queue.push(globalCommands.shift());
+        }
+
         if (queue && queue.length > 0) {
             const cmd = queue.shift();
             console.log(`[ADMS] Enviando orden (${cmd}) a SN: ${SN}. Pendientes: ${queue.length}`);
@@ -2894,6 +2976,7 @@ app.get('/api/zkteco/devices', (req, res) => {
 });
 
 // ─── ZKTeco: Función para encolar envío de usuario a la máquina ────────────
+const globalCommands = [];
 function pushUserToDevice(biometricId, nombre, apellidos) {
     if (!biometricId) return 0;
     const fullName = `${nombre || ''} ${apellidos || ''}`.trim().substring(0, 24); // ZKTeco max 24 chars
@@ -2901,7 +2984,9 @@ function pushUserToDevice(biometricId, nombre, apellidos) {
     const cmd = `DATA UPDATE USERINFO PIN=${biometricId}\tName=${fullName}\tPrivilege=0\tPassword=\tEnabled=1\tCardNo=0\tGroup=1\tTimeZone=0\tVerify=0`;
     let pushed = 0;
     if (knownDeviceSNs.size === 0) {
-        console.log(`[ZKTeco] ⚠️ No hay dispositivos conectados. El usuario PIN=${biometricId} se enviará cuando la máquina se conecte.`);
+        console.log(`[ZKTeco] ⚠️ No hay dispositivos conectados. El usuario PIN=${biometricId} se encolará globalmente.`);
+        globalCommands.push(cmd);
+        return 1;
     }
     for (const sn of knownDeviceSNs) {
         if (!pendingCommands.has(sn)) pendingCommands.set(sn, []);

@@ -18,7 +18,7 @@ interface Employee {
     sueldo?: number;
     [key: string]: any;
 }
-
+//asdasdasdasdasdsadadasdasdas
 interface EmployeeFormData {
     _id?: string;
     nombre: string;

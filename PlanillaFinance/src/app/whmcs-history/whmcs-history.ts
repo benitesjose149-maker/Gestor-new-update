@@ -81,7 +81,6 @@ export class WhmcsHistoryComponent implements OnInit {
             const currentMonth = this.selectedMonth;
             const currentYear = this.selectedYear;
 
-            // Llamamos a ambos endpoints en paralelo
             const [invoicesRes, egresosRes] = await Promise.all([
                 fetch(`${API_URL}/api/whmcs/invoices?mes=${currentMonth}&anio=${currentYear}&limit=1000${forceSync ? '&sync=true' : ''}`, { headers: getAuthHeaders() }),
                 fetch(`${API_URL}/api/finance/egresos?mes=${currentMonth}&anio=${currentYear}`, { headers: getAuthHeaders() })
@@ -104,7 +103,7 @@ export class WhmcsHistoryComponent implements OnInit {
                 const mappedEgresos = (data.egresos || []).map((eg: any) => ({
                     ...eg,
                     isEgreso: true,
-                    localId: eg.localId || eg._id || eg.id, // Aseguramos que tenga ID para guardar
+                    localId: eg.localId || eg._id || eg.id,
                     montoBruto: eg.monto,
                     depositoSalida: eg.monto,
                     numFactura: 'EGRESO',
@@ -114,7 +113,6 @@ export class WhmcsHistoryComponent implements OnInit {
                 mergedItems = [...mergedItems, ...mappedEgresos];
             }
 
-            // Ordenamos por fecha descendente
             this.invoices = mergedItems.sort((a, b) => b.sortDate - a.sortDate);
             this.calculateTotals();
 
@@ -146,7 +144,11 @@ export class WhmcsHistoryComponent implements OnInit {
 
     async onFieldChange(inv: any) {
         try {
-            const res = await fetch(`${API_URL}/api/finance/invoices/${inv.localId}/metadata`, {
+            const endpoint = inv.isEgreso
+                ? `${API_URL}/api/finance/egresos/${inv.localId}/metadata`
+                : `${API_URL}/api/finance/invoices/${inv.localId}/metadata`;
+
+            const res = await fetch(endpoint, {
                 method: 'POST',
                 headers: {
                     ...getAuthHeaders(),
@@ -177,29 +179,24 @@ export class WhmcsHistoryComponent implements OnInit {
     calculateTotals() {
         const isReconciled = (it: any) => it.estadoLocal === 'Conciliado' || it.estadoLocal === 'Pagado';
 
-        // Ingresos solamente
         this.totalGross = this.invoices
             .filter(i => !i.isEgreso)
             .reduce((sum, inv) => sum + (Number(inv.montoBruto) || 0), 0);
 
-        // Comisiones solamente
         this.totalFees = this.invoices
             .filter(i => !i.isEgreso)
             .reduce((sum, inv) => sum + (Number(inv.comision) || 0), 0);
 
-        // Egresos solamente (SOLO CONCILIADOS/PAGADOS)
         this.totalEgresos = this.invoices
             .filter(i => i.isEgreso && isReconciled(i))
             .reduce((sum, inv) => sum + (Number(inv.montoBruto) || 0), 0);
 
-        // Balance Final (Solo lo real)
         const incomeNetReconciled = this.invoices
             .filter(i => !i.isEgreso && isReconciled(i))
             .reduce((sum, i) => sum + (Number(i.montoBruto || 0) - Number(i.comision || 0)), 0);
 
         this.totalNet = incomeNetReconciled - this.totalEgresos;
 
-        // Desglose por Banco (Solo Conciliados)
         this.bankTotals = { bcp: 0, interbank: 0, cajaVirtual: 0 };
         this.invoices.filter(it => isReconciled(it)).forEach(it => {
             const b = (it.banco || '').toUpperCase();
